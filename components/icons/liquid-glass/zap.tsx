@@ -1,0 +1,12 @@
+import { IconProps, defaultSize } from "../iconprops";
+import { IconWrapper } from "./wrapper";
+
+export function Zap({ size = defaultSize, className }: IconProps) {
+    return (
+        <IconWrapper className={className}>
+            <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width={size} height={size} viewBox="0 0 24 24">
+                <linearGradient id="SVGID_1__GczmuMYEWxYW_gr1" x1="4.623" x2="16.87" y1="6.255" y2="18.502" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#fff" stopOpacity=".6"></stop><stop offset="1" stopColor="#fff" stopOpacity=".3"></stop></linearGradient><path fill="url(#SVGID_1__GczmuMYEWxYW_gr1)" d="M15,18h-1.7l2.6-7c0.2-0.5,0.1-1-0.2-1.4C15.5,9.2,15,9,14.5,9H9.7l2.2-6c0.3-0.8-0.1-1.6-0.9-1.9 C10.3,0.8,9.4,1.2,9.1,2l-3,8c-0.2,0.5-0.1,1,0.2,1.4C6.5,11.8,7,12,7.5,12h4.8l-2.2,6c0,0,0,0,0,0H8c-0.8,0-1.3,0.9-0.9,1.5l2,3 c0.3,0.5,0.9,0.6,1.4,0.3l4.9-3C16.4,19.3,16,18,15,18z"></path><linearGradient id="SVGID_00000049917509466875155270000014425225792467032226__GczmuMYEWxYW_gr2" x1="4.623" x2="16.87" y1="6.255" y2="18.502" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#fff" stopOpacity=".6"></stop><stop offset=".493" stopColor="#fff" stopOpacity="0"></stop><stop offset=".997" stopColor="#fff" stopOpacity=".3"></stop></linearGradient><path fill="url(#SVGID_00000049917509466875155270000014425225792467032226__GczmuMYEWxYW_gr2)" d="M10.5,1.5c0.1,0,0.2,0,0.4,0.1 c0.3,0.1,0.4,0.3,0.6,0.5c0.1,0.2,0.1,0.5,0,0.8l-2.2,6L8.9,9.5h0.7h4.8c0.3,0,0.6,0.2,0.8,0.4c0.2,0.3,0.2,0.6,0.1,0.9l-2.6,7 l-0.3,0.7h0.7H15c0.3,0,0.5,0.2,0.5,0.4c0,0.1,0.1,0.3-0.2,0.5l-4.9,3c-0.1,0.1-0.2,0.1-0.3,0.1c-0.2,0-0.4-0.1-0.4-0.2l-2-3 c-0.1-0.2-0.1-0.4,0-0.5c0.1-0.2,0.3-0.3,0.5-0.3h2.1h0.4l0.1-0.3l0,0l0,0l2.2-5.9l0.3-0.7h-0.7H7.5c-0.3,0-0.6-0.2-0.8-0.4 c-0.2-0.3-0.2-0.6-0.1-0.9l3-8C9.7,1.8,10.1,1.5,10.5,1.5L10.5,1.5 M10.5,1C9.9,1,9.3,1.4,9.1,2l-3,8c-0.2,0.5-0.1,1,0.2,1.4 C6.5,11.8,7,12,7.5,12h4.8l-2.2,6c0,0,0,0,0,0H8c-0.8,0-1.3,0.9-0.9,1.5l2,3c0.2,0.3,0.5,0.5,0.9,0.5c0.2,0,0.4-0.1,0.6-0.2l4.9-3 C16.4,19.3,16,18,15,18h-1.7l2.6-7c0.2-0.5,0.1-1-0.2-1.4C15.5,9.2,15,9,14.5,9H9.7l2.2-6c0.3-0.8-0.1-1.6-0.9-1.9 C10.9,1,10.7,1,10.5,1L10.5,1z"></path>
+            </svg>
+        </IconWrapper>
+    )
+}

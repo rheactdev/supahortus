@@ -1,0 +1,12 @@
+import { IconProps, defaultSize } from "../iconprops";
+import { IconWrapper } from "./wrapper";
+
+export function Trash({ size = defaultSize, className }: IconProps) {
+    return (
+        <IconWrapper className={className}>
+            <svg xmlns="http://www.w3.org/2000/svg" baseProfile="basic" viewBox="0 0 24 24" width={size} height={size}>
+                <linearGradient id="JnGrXvgdtpFICp4A-sSaAa" x1="4.144" x2="19.856" y1="3.027" y2="18.739" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#fff" stopOpacity=".6"/><stop offset="1" stopColor="#fff" stopOpacity=".3"/></linearGradient><path fill="url(#JnGrXvgdtpFICp4A-sSaAa)" d="M21,5c0-1.105-0.895-2-2-2c-0.174,0-1.373,0-3,0c0-0.552-0.448-1-1-1H9C8.448,2,8,2.448,8,3 C6.373,3,5.174,3,5,3C3.895,3,3,3.895,3,5c0,0.778,0.449,1.444,1.097,1.775l1.575,12.597C5.859,20.873,7.135,22,8.648,22h6.703 c1.513,0,2.789-1.127,2.977-2.628l1.575-12.597C20.551,6.444,21,5.778,21,5z"/><linearGradient id="JnGrXvgdtpFICp4A-sSaAb" x1="4.144" x2="19.856" y1="3.027" y2="18.739" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#fff" stopOpacity=".6"/><stop offset=".493" stopColor="#fff" stopOpacity="0"/><stop offset=".997" stopColor="#fff" stopOpacity=".3"/></linearGradient><path fill="url(#JnGrXvgdtpFICp4A-sSaAb)" d="M15,2.5c0.276,0,0.5,0.224,0.5,0.5v0.5H16 h3c0.827,0,1.5,0.673,1.5,1.5c0,0.561-0.316,1.07-0.824,1.33L19.44,6.45l-0.033,0.263L17.832,19.31 c-0.156,1.248-1.223,2.19-2.481,2.19H8.648c-1.258,0-2.325-0.941-2.481-2.19L4.593,6.713L4.56,6.45L4.324,6.33 C3.816,6.07,3.5,5.561,3.5,5c0-0.827,0.673-1.5,1.5-1.5h3h0.5V3c0-0.276,0.224-0.5,0.5-0.5H15 M15,2H9C8.448,2,8,2.448,8,3 C6.373,3,5.174,3,5,3C3.895,3,3,3.895,3,5c0,0.778,0.449,1.444,1.097,1.775l1.575,12.597C5.859,20.873,7.135,22,8.648,22h6.703 c1.513,0,2.789-1.127,2.977-2.628l1.575-12.597C20.551,6.444,21,5.778,21,5c0-1.105-0.895-2-2-2c-0.174,0-1.373,0-3,0 C16,2.448,15.552,2,15,2L15,2z"/><linearGradient id="JnGrXvgdtpFICp4A-sSaAc" x1="7.086" x2="16.914" y1=".086" y2="9.914" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#fff" stopOpacity=".7"/><stop offset=".519" stopColor="#fff" stopOpacity=".45"/><stop offset="1" stopColor="#fff" stopOpacity=".55"/></linearGradient><path fill="url(#JnGrXvgdtpFICp4A-sSaAc)" d="M19,3c-0.174,0-1.373,0-3,0	c0-0.552-0.448-1-1-1H9C8.448,2,8,2.448,8,3C6.373,3,5.174,3,5,3C3.895,3,3,3.895,3,5c0,1.105,0.895,2,2,2c0.601,0,13.399,0,14,0	c1.105,0,2-0.895,2-2C21,3.895,20.105,3,19,3z"/>
+            </svg>
+        </IconWrapper>
+    )
+}

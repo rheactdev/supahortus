@@ -1,19 +1,16 @@
-import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
-
 export function EnvVarWarning() {
   return (
     <div className="flex gap-4 items-center">
-      <Badge variant={"outline"} className="font-normal">
+      <div className="badge badge-outline font-normal">
         Supabase environment variables required
-      </Badge>
+      </div>
       <div className="flex gap-2">
-        <Button size="sm" variant={"outline"} disabled>
+        <button className="btn btn-sm btn-outline" disabled>
           Sign in
-        </Button>
-        <Button size="sm" variant={"default"} disabled>
+        </button>
+        <button className="btn btn-sm btn-primary" disabled>
           Sign up
-        </Button>
+        </button>
       </div>
     </div>
   );

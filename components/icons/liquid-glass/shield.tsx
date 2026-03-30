@@ -1,0 +1,9 @@
+import { IconProps, defaultSize } from "../iconprops";
+import { IconWrapper } from "./wrapper";
+export function Shield({ size = defaultSize, className }: IconProps) {
+    return <IconWrapper className={className}>
+        <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width={size} height={size} viewBox="0 0 24 24">
+            <linearGradient id="Swg5jg8X8oXtW0iYKQDcha_Hae8z4kvwcFs_gr1" x1="5.207" x2="18.792" y1="3.859" y2="17.444" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#fff" stopOpacity=".6"></stop><stop offset="1" stopColor="#fff" stopOpacity=".3"></stop></linearGradient><path fill="url(#Swg5jg8X8oXtW0iYKQDcha_Hae8z4kvwcFs_gr1)" d="M21.947,7.974c0.057-1.01-0.652-1.937-1.651-2.102C16.145,5.189,16.464,2,12,2 C7.536,2,7.855,5.189,3.704,5.872C2.705,6.036,1.996,6.963,2.053,7.974C2.481,15.604,5.534,19.229,12,22 C18.466,19.229,21.519,15.604,21.947,7.974z"></path><linearGradient id="Swg5jg8X8oXtW0iYKQDchb_Hae8z4kvwcFs_gr2" x1="5.207" x2="18.792" y1="3.859" y2="17.444" gradientUnits="userSpaceOnUse"><stop offset="0" stopColor="#fff" stopOpacity=".6"></stop><stop offset=".493" stopColor="#fff" stopOpacity="0"></stop><stop offset=".997" stopColor="#fff" stopOpacity=".3"></stop></linearGradient><path fill="url(#Swg5jg8X8oXtW0iYKQDchb_Hae8z4kvwcFs_gr2)" d="M12,2.5c2.195,0,3.096,0.805,4.139,1.736 c0.938,0.838,2.001,1.787,4.076,2.129c0.734,0.121,1.276,0.815,1.233,1.58c-0.392,6.997-2.959,10.678-9.448,13.51 c-6.489-2.832-9.055-6.513-9.448-13.51C2.509,7.18,3.051,6.486,3.785,6.365c2.076-0.342,3.139-1.291,4.076-2.129 C8.904,3.305,9.805,2.5,12,2.5 M12,2C7.536,2,7.855,5.189,3.704,5.872C2.705,6.036,1.996,6.963,2.053,7.974 C2.481,15.604,5.534,19.229,12,22c6.466-2.771,9.519-6.396,9.947-14.026c0.057-1.01-0.652-1.937-1.651-2.102 C16.145,5.189,16.464,2,12,2L12,2z"></path>
+        </svg>
+    </IconWrapper>
+}

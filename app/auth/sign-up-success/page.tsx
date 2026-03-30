@@ -1,30 +1,18 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-
 export default function Page() {
   return (
     <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-2xl">
-                Thank you for signing up!
-              </CardTitle>
-              <CardDescription>Check your email to confirm</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                You&apos;ve successfully signed up. Please check your email to
-                confirm your account before signing in.
-              </p>
-            </CardContent>
-          </Card>
+      <div className="w-full max-w-sm flex flex-col gap-6">
+        <div className="card bg-base-100 shadow-xl border border-base-content/10">
+          <div className="card-body text-center">
+            <h2 className="card-title text-2xl justify-center font-bold">
+              Thank you for signing up!
+            </h2>
+            <p className="text-base-content/70 mt-1 mb-2 font-medium">Check your email to confirm</p>
+            <p className="text-sm text-base-content/70">
+              You&apos;ve successfully signed up. Please check your email to
+              confirm your account before signing in.
+            </p>
+          </div>
         </div>
       </div>
     </div>

@@ -2,16 +2,6 @@
 
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -58,63 +48,74 @@ export function SignUpForm({
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-2xl">Sign up</CardTitle>
-          <CardDescription>Create a new account</CardDescription>
-        </CardHeader>
-        <CardContent>
+      <div className="card bg-base-100 shadow-xl border border-base-content/10">
+        <div className="card-body">
+          <h2 className="card-title text-2xl justify-center font-bold">Sign up</h2>
+          <p className="text-center text-base-content/70 mb-4">
+            Create a new account
+          </p>
           <form onSubmit={handleSignUp}>
-            <div className="flex flex-col gap-6">
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
+            <div className="flex flex-col gap-4">
+              <div className="form-control w-full">
+                <label className="label" htmlFor="email">
+                  <span className="label-text font-medium">Email</span>
+                </label>
+                <input
                   id="email"
                   type="email"
                   placeholder="m@example.com"
+                  className="input input-bordered w-full"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
-              <div className="grid gap-2">
-                <div className="flex items-center">
-                  <Label htmlFor="password">Password</Label>
-                </div>
-                <Input
+              <div className="form-control w-full">
+                <label className="label" htmlFor="password">
+                  <span className="label-text font-medium">Password</span>
+                </label>
+                <input
                   id="password"
                   type="password"
+                  className="input input-bordered w-full"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              <div className="grid gap-2">
-                <div className="flex items-center">
-                  <Label htmlFor="repeat-password">Repeat Password</Label>
-                </div>
-                <Input
+              <div className="form-control w-full">
+                <label className="label" htmlFor="repeat-password">
+                  <span className="label-text font-medium">Repeat Password</span>
+                </label>
+                <input
                   id="repeat-password"
                   type="password"
+                  className="input input-bordered w-full"
                   required
                   value={repeatPassword}
                   onChange={(e) => setRepeatPassword(e.target.value)}
                 />
               </div>
-              {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Creating an account..." : "Sign up"}
-              </Button>
+
+              {error && <p className="text-sm text-error mt-1">{error}</p>}
+
+              <button
+                type="submit"
+                className="btn btn-primary w-full mt-2"
+                disabled={isLoading}
+              >
+                {isLoading ? <span className="loading loading-ring"></span> : "Sign up"}
+              </button>
             </div>
-            <div className="mt-4 text-center text-sm">
+            <div className="mt-6 text-center text-sm">
               Already have an account?{" "}
-              <Link href="/auth/login" className="underline underline-offset-4">
+              <Link href="/auth/login" className="link link-primary font-semibold">
                 Login
               </Link>
             </div>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

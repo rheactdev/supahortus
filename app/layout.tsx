@@ -1,7 +1,9 @@
+import * as React from "react";
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
-import { ThemeProvider } from "next-themes";
+import { Outfit } from "next/font/google";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
+import { Navbar } from "@/components/ui/navbar";
 
 const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
@@ -13,8 +15,8 @@ export const metadata: Metadata = {
   description: "The fastest way to build apps with Next.js and Supabase",
 };
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const outfit = Outfit({
+  variable: "--font-outfit",
   display: "swap",
   subsets: ["latin"],
 });
@@ -26,14 +28,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.className} antialiased`}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          {children}
+      <body className={`${outfit.className} antialiased`}>
+        <ThemeProvider>
+          <React.Suspense fallback={<div className="h-screen w-full flex items-center justify-center"><span className="loading loading-rings loading-lg"></span></div>}>
+            <Navbar />
+            {children}
+          </React.Suspense>
         </ThemeProvider>
       </body>
     </html>
