@@ -3,6 +3,7 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
+import { checkAccess } from "@/lib/auth";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -20,6 +21,12 @@ export async function POST(request: Request) {
     }
 
     const key = `${prefix}${filename}`;
+
+    // Check folder access
+    const { allowed } = await checkAccess(supabase, authData.user, key);
+    if (!allowed) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,

@@ -1,14 +1,16 @@
 import Link from "next/link";
+import { AuthButton } from "../auth-button";
 
-export const Navbar = () => {
-    return <div className="navbar bg-base-300 shadow-sm">
+export const Navbar = async () => {
+    return <div className="navbar bg-base-300 shadow-sm px-4">
         <div className="flex-1">
             <Link className="btn btn-ghost text-xl" href="/">Hortus</Link>
         </div>
-        <div className="flex-none">
+        <div className="flex-none gap-4">
             <ul className="menu menu-horizontal px-1">
                 <li><Link href="/dashboard">Dashboard</Link></li>
             </ul>
+            <AuthButton />
         </div>
     </div>
 }

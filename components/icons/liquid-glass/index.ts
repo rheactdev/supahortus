@@ -17,9 +17,12 @@ import { Video } from "./video";
 import { Music } from "./music";
 import { PdfIcon } from "./pdf";
 import { DocumentIcon } from "./document";
+import { Share } from "./share";
+import { MenuDots } from "./menu-dots";
 
 export { 
     Database, HardDrive, Shield, Upload, Zap,
     Folder, FileIcon, Download, Palette, Close, Add, Sun, Moon,
-    Trash, Checkmark, Video, Music, PdfIcon, DocumentIcon
+    Trash, Checkmark, Video, Music, PdfIcon, DocumentIcon,
+    Share, MenuDots
 }

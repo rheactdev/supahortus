@@ -3,6 +3,7 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
+import { checkAccess } from "@/lib/auth";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -19,20 +20,29 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Key query parameter is required" }, { status: 400 });
   }
 
+  // Check folder access
+  const { allowed } = await checkAccess(supabase, authData.user, key);
+  if (!allowed) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   try {
-    const command = new GetObjectCommand({
+    const commandConfig: Record<string, string> = {
       Bucket: BUCKET_NAME,
       Key: key,
-      // Optional: Force a secure download rather than inline display
-      // ResponseContentDisposition: `attachment; filename="${key.split('/').pop()}"`
-    });
+    };
 
-    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-    
-    // We could return JSON containing the URL, or redirect directly to the presigned URL.
-    // Redirecting is usually nicer for instant browser downloads. 
-    // However, if we just want to fetch the URL client-side for "copy to clipboard" feature, 
-    // we should return JSON. Let's redirect if 'action=download', else return JSON.
+    if (searchParams.get("download") === "true") {
+      commandConfig.ResponseContentDisposition = `attachment; filename="${key.split('/').pop()}"`;
+    }
+
+    const command = new GetObjectCommand(commandConfig);
+
+    const isShare = searchParams.get("share") === "true";
+    const expiresIn = isShare ? 604800 : 3600;
+
+    const url = await getSignedUrl(s3Client, command, { expiresIn });
+
     const action = searchParams.get("action");
     if (action === 'download') {
       return NextResponse.redirect(url);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
+import { checkAccess } from "@/lib/auth";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -18,13 +19,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid folder name" }, { status: 400 });
     }
 
-    // S3 specifies a fully-fledged folder merely by an empty object logically terminating in a slash "/"
     const folderKey = `${prefix}${folderName}/`;
+
+    // Check folder access (prefix must be accessible to create subfolders)
+    const { allowed } = await checkAccess(supabase, authData.user, prefix || folderKey);
+    if (!allowed) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
       Key: folderKey,
-      Body: "", // 0-byte body
+      Body: "",
     });
 
     await s3Client.send(command);

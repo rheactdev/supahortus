@@ -31,7 +31,6 @@ export default function RootLayout({
       <body className={`${outfit.className} antialiased`}>
         <ThemeProvider>
           <React.Suspense fallback={<div className="h-screen w-full flex items-center justify-center"><span className="loading loading-rings loading-lg"></span></div>}>
-            <Navbar />
             {children}
           </React.Suspense>
         </ThemeProvider>
