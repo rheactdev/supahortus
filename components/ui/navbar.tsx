@@ -6,11 +6,11 @@ export const Navbar = async () => {
         <div className="flex-1">
             <Link className="btn btn-ghost text-xl" href="/">Hortus</Link>
         </div>
-        <div className="flex-none gap-4">
+        <div className="flex-none">
             <ul className="menu menu-horizontal px-1">
                 <li><Link href="/dashboard">Dashboard</Link></li>
+                <AuthButton />
             </ul>
-            <AuthButton />
         </div>
     </div>
 }
