@@ -1,5 +1,13 @@
-import React, { useState } from "react";
-import { FileIcon, Download, Trash, Share, MenuDots, DocumentIcon } from "@/components/icons/liquid-glass";
+import React, { useState, memo } from "react";
+import {
+  FileIcon,
+  Download,
+  Trash,
+  Share,
+  MenuDots,
+  DocumentIcon,
+} from "@/components/icons/liquid-glass";
+import { deleteItem, renameItem, createShareLink } from "@/lib/actions";
 
 type Item = {
   id: string;
@@ -12,10 +20,19 @@ type Item = {
 
 interface FileCardProps {
   item: Item;
+  thumbnailUrl?: string;
+  userId: string;
+  folderId: string | null;
   onRefresh: () => void;
 }
 
-export function FileCard({ item, onRefresh }: FileCardProps) {
+export const FileCard = memo(function FileCard({
+  item,
+  thumbnailUrl,
+  userId,
+  folderId,
+  onRefresh,
+}: FileCardProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [toast, setToast] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -25,10 +42,12 @@ export function FileCard({ item, onRefresh }: FileCardProps) {
   const isImage = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(item.name);
 
   const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024, dm = 2, sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024,
+      dm = 2,
+      sizes = ["Bytes", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
   };
 
   const handleDownload = () => {
@@ -39,7 +58,7 @@ export function FileCard({ item, onRefresh }: FileCardProps) {
   const handleDelete = async () => {
     if (window.confirm(`Are you sure you want to delete ${item.name}?`)) {
       try {
-        await fetch(`/api/s3/delete?id=${encodeURIComponent(item.id)}`, { method: "DELETE" });
+        await deleteItem(item.id, userId, folderId);
         onRefresh();
       } catch (err) {
         console.error("Failed to delete", err);
@@ -50,19 +69,10 @@ export function FileCard({ item, onRefresh }: FileCardProps) {
 
   const handleShare = async () => {
     try {
-      const res = await fetch(`/api/s3/share`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId: item.id })
-      });
-      const data = await res.json();
-      if (data.url) {
-        await navigator.clipboard.writeText(data.url);
-        setToast(true);
-        setTimeout(() => setToast(false), 3000);
-      } else {
-        console.error(data.error);
-      }
+      const url = await createShareLink(item.id, userId);
+      await navigator.clipboard.writeText(url);
+      setToast(true);
+      setTimeout(() => setToast(false), 3000);
     } catch (err) {
       console.error("Failed to share", err);
     }
@@ -73,16 +83,9 @@ export function FileCard({ item, onRefresh }: FileCardProps) {
     if (!renameName.trim() || renameName.trim() === item.name) return;
     setRenameLoading(true);
     try {
-      const res = await fetch("/api/s3/rename", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId: item.id, newName: renameName.trim() }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setRenameOpen(false);
-        onRefresh();
-      }
+      await renameItem(item.id, renameName.trim(), userId, folderId);
+      setRenameOpen(false);
+      onRefresh();
     } catch (err) {
       console.error("Failed to rename", err);
     } finally {
@@ -94,43 +97,87 @@ export function FileCard({ item, onRefresh }: FileCardProps) {
     <>
       <div className="card bg-base-100 hover:bg-base-200 border border-base-content/10 hover:border-primary/30 group overflow-visible relative h-full">
         <div className="card-body p-0 flex flex-col h-full rounded-[inherit] relative">
-
           {/* 3 dot menu overlay */}
-          <div className={`absolute top-2 right-2 z-10 transition-opacity ${dropdownOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-            <details className="dropdown dropdown-end" open={dropdownOpen} onToggle={(e) => setDropdownOpen((e.target as HTMLDetailsElement).open)}>
+          <div
+            className={`absolute top-2 right-2 z-10 transition-opacity ${dropdownOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+          >
+            <details
+              className="dropdown dropdown-end"
+              open={dropdownOpen}
+              onToggle={(e) =>
+                setDropdownOpen(
+                  (e.target as HTMLDetailsElement).open
+                )
+              }
+            >
               <summary className="btn btn-sm btn-square btn-soft shadow-sm">
                 <MenuDots size={18} />
               </summary>
               <ul className="dropdown-content menu bg-base-100 rounded-box z-[20] w-48 p-2 shadow-2xl border border-base-content/10 mt-1">
-                <li><button onClick={handleShare}><Share size={16} className="text-info" /> Share Link</button></li>
-                <li><button onClick={() => { setRenameOpen(true); setRenameName(item.name); setDropdownOpen(false); }}><DocumentIcon size={16} className="text-warning" /> Rename</button></li>
-                <li><button onClick={handleDownload}><Download size={16} className="text-secondary" /> Download</button></li>
-                <div className="divider my-0"></div>
-                <li><button onClick={handleDelete} className="text-error hover:bg-error/10 hover:text-error"><Trash size={16} /> Delete</button></li>
+                <li>
+                  <button onClick={handleShare}>
+                    <Share size={16} className="text-info" /> Share Link
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => {
+                      setRenameOpen(true);
+                      setRenameName(item.name);
+                      setDropdownOpen(false);
+                    }}
+                  >
+                    <DocumentIcon size={16} className="text-warning" />{" "}
+                    Rename
+                  </button>
+                </li>
+                <li>
+                  <button onClick={handleDownload}>
+                    <Download size={16} className="text-secondary" />{" "}
+                    Download
+                  </button>
+                </li>
+                <div className="divider my-0" />
+                <li>
+                  <button
+                    onClick={handleDelete}
+                    className="text-error hover:bg-error/10 hover:text-error"
+                  >
+                    <Trash size={16} /> Delete
+                  </button>
+                </li>
               </ul>
             </details>
           </div>
 
           {/* Visual Preview Area */}
           <div className="h-32 w-full bg-base-200/30 relative flex items-center justify-center border-b border-base-content/5 overflow-hidden group-hover:bg-base-200 rounded-t-[inherit]">
-            {isImage ? (
+            {isImage && thumbnailUrl ? (
               <img
-                src={`/api/s3/download?action=download&id=${encodeURIComponent(item.id)}`}
+                src={thumbnailUrl}
                 alt={item.name}
                 className="w-full h-full object-cover transform opacity-100 hover:scale-105 transition-transform"
                 loading="lazy"
+                decoding="async"
               />
             ) : (
               <div className="p-3 bg-primary/10 rounded-lg text-primary">
-                <FileIcon size={32} className="group-hover:opacity-50 transition-opacity" />
+                <FileIcon
+                  size={32}
+                  className="group-hover:opacity-50 transition-opacity"
+                />
               </div>
             )}
           </div>
 
           {/* Metadata Area */}
           <div className="p-4 flex flex-col gap-1 mt-auto group-hover:opacity-50 transition-opacity">
-            <span className="font-medium truncate text-sm" title={item.name}>{item.name}</span>
-            <span className="text-xs text-base-content/50">{item.size !== null ? formatSize(item.size) : ""}</span>
+            <span className="font-medium truncate text-sm" title={item.name}>
+              {item.name}
+            </span>
+            <span className="text-xs text-base-content/50">
+              {item.size !== null ? formatSize(item.size) : ""}
+            </span>
           </div>
         </div>
       </div>
@@ -156,13 +203,26 @@ export function FileCard({ item, onRefresh }: FileCardProps) {
               autoFocus
             />
             <div className="modal-action">
-              <button className="btn btn-ghost" onClick={() => setRenameOpen(false)}>Cancel</button>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setRenameOpen(false)}
+              >
+                Cancel
+              </button>
               <button
                 className="btn btn-primary"
                 onClick={handleRename}
-                disabled={!renameName.trim() || renameName.trim() === item.name || renameLoading}
+                disabled={
+                  !renameName.trim() ||
+                  renameName.trim() === item.name ||
+                  renameLoading
+                }
               >
-                {renameLoading ? <span className="loading loading-spinner loading-sm" /> : "Rename"}
+                {renameLoading ? (
+                  <span className="loading loading-spinner loading-sm" />
+                ) : (
+                  "Rename"
+                )}
               </button>
             </div>
           </div>
@@ -173,4 +233,4 @@ export function FileCard({ item, onRefresh }: FileCardProps) {
       )}
     </>
   );
-}
+});

@@ -1,11 +1,5 @@
-import { AuthButton } from "@/components/auth-button";
-import { ThemeSwitcher } from "@/components/theme-switcher";
-import Link from "next/link";
-import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Database } from "@/components/icons/liquid-glass";
-
 import { connection } from "next/server";
 import { Navbar } from "@/components/ui/navbar";
 

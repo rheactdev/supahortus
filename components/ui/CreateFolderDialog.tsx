@@ -3,15 +3,17 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Add } from "@/components/icons/liquid-glass";
 import { DaisyUIForm } from "./form";
+import { createFolder } from "@/lib/actions";
 
 interface CreateFolderDialogProps {
   parentId: string | null;
+  userId: string;
   isAdmin?: boolean;
   breadcrumbs?: { id: string; name: string }[];
   onSuccess: () => void;
 }
 
-export function CreateFolderDialog({ parentId, onSuccess, isAdmin, breadcrumbs }: CreateFolderDialogProps) {
+export function CreateFolderDialog({ parentId, userId, onSuccess, isAdmin, breadcrumbs }: CreateFolderDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -44,22 +46,11 @@ export function CreateFolderDialog({ parentId, onSuccess, isAdmin, breadcrumbs }
     setError("");
 
     try {
-      const res = await fetch("/api/s3/folder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: cleanName, parentId }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to create folder");
-      }
-
+      await createFolder(cleanName, userId, parentId);
       setIsOpen(false);
       onSuccess();
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || "Failed to create folder");
     } finally {
       setIsSubmitting(false);
     }

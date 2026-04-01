@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@/lib/utils";
+
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -32,7 +32,7 @@ export function UpdatePasswordForm({
   };
 
   return (
-    <div className={cn("flex flex-col gap-6", className)} {...props}>
+    <div className={`flex flex-col gap-6 ${className ?? ""}`.trim()} {...props}>
       <div className="card bg-base-100 shadow-xl border border-base-content/10">
         <div className="card-body">
           <h2 className="card-title text-2xl justify-center font-bold">Reset Your Password</h2>

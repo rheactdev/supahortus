@@ -7,6 +7,7 @@ import AwsS3 from "@uppy/aws-s3";
 import ThumbnailGenerator from "@uppy/thumbnail-generator";
 import { Upload, Trash, Checkmark, FileIcon, Add, Video, Music, PdfIcon, DocumentIcon } from "@/components/icons/liquid-glass";
 import { QueueUpload } from "./queueupload";
+import { invalidateItemsCache } from "@/lib/actions";
 
 const getFileIcon = (type: string, size = 64) => {
   if (type.startsWith('video/')) return <Video size={size} />;
@@ -16,7 +17,7 @@ const getFileIcon = (type: string, size = 64) => {
   return <FileIcon size={size} />;
 };
 
-export function UppyUploader({ parentId, onUploadSuccess }: { parentId: string | null, onUploadSuccess: () => void }) {
+export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: string | null, userId: string, onUploadSuccess: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
   const parentIdRef = useRef(parentId);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,8 +56,10 @@ export function UppyUploader({ parentId, onUploadSuccess }: { parentId: string |
   const fileArray: UppyFile<Meta, Record<string, never>>[] = Object.values(uppyFiles);
 
   useEffect(() => {
-    const handleComplete = (result: any) => {
+    const handleComplete = async (result: any) => {
       if (result.successful.length > 0) {
+        // Invalidate the items cache so the server re-fetches on next render
+        await invalidateItemsCache(userId, parentIdRef.current);
         onUploadSuccess();
       }
     };
@@ -65,7 +68,7 @@ export function UppyUploader({ parentId, onUploadSuccess }: { parentId: string |
     return () => {
       uppy.off("complete", handleComplete);
     };
-  }, [uppy, onUploadSuccess]);
+  }, [uppy, onUploadSuccess, userId]);
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
