@@ -51,6 +51,8 @@ export async function POST(request: Request) {
         : undefined;
     } while (continuationToken);
 
+    console.log(`[sync-worker] Bucket has ${bucketKeys.size} keys`);
+
     // 2. Get all items owned by this user
     const { data: items, error: fetchError } = await supabaseAdmin
       .from("items")
@@ -58,6 +60,9 @@ export async function POST(request: Request) {
       .eq("owner_id", ownerId);
 
     if (fetchError) throw fetchError;
+
+    console.log(`[sync-worker] DB has ${items?.length ?? 0} items for owner ${ownerId}`);
+
     if (!items || items.length === 0) {
       return NextResponse.json({ deleted: 0, kept: 0 });
     }
@@ -70,13 +75,16 @@ export async function POST(request: Request) {
       }
     }
 
+    console.log(`[sync-worker] Found ${orphanFileIds.length} orphan files out of ${items.filter(i => i.size !== null).length} total files`);
+
     if (orphanFileIds.length > 0) {
       for (let i = 0; i < orphanFileIds.length; i += 200) {
         const batch = orphanFileIds.slice(i, i + 200);
-        const { error: delError } = await supabaseAdmin
+        const { error: delError, count } = await supabaseAdmin
           .from("items")
-          .delete()
+          .delete({ count: "exact" })
           .in("id", batch);
+        console.log(`[sync-worker] Deleted batch of ${count} orphan files`);
         if (delError) throw delError;
       }
     }
