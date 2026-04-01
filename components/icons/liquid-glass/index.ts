@@ -19,10 +19,11 @@ import { PdfIcon } from "./pdf";
 import { DocumentIcon } from "./document";
 import { Share } from "./share";
 import { MenuDots } from "./menu-dots";
+import { Refresh } from "./refresh";
 
 export { 
     Database, HardDrive, Shield, Upload, Zap,
     Folder, FileIcon, Download, Palette, Close, Add, Sun, Moon,
     Trash, Checkmark, Video, Music, PdfIcon, DocumentIcon,
-    Share, MenuDots
+    Share, MenuDots, Refresh
 }

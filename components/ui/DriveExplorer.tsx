@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { UppyUploader } from "./UppyUploader";
 import { CreateFolderDialog } from "./CreateFolderDialog";
-import { Folder, Share, MenuDots, DocumentIcon, Database } from "@/components/icons/liquid-glass";
+import { Folder, Share, MenuDots, DocumentIcon, Database, Refresh } from "@/components/icons/liquid-glass";
 import { FileCard } from "./FileCard";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -175,7 +175,7 @@ export function DriveExplorer() {
         <div className="flex gap-2 items-center">
           {isAdmin && (
             <button
-              className="btn btn-soft btn-sm tooltip tooltip-bottom"
+              className="btn btn-soft btn-sm tooltip tooltip-top"
               data-tip="Sync DB with bucket"
               disabled={syncing}
               onClick={async () => {
@@ -201,7 +201,7 @@ export function DriveExplorer() {
                 }
               }}
             >
-              {syncing ? <span className="loading loading-spinner loading-xs" /> : <Database size={16} />}
+              {syncing ? <span className="loading loading-spinner loading-xs" /> : <Refresh size={16} />}
             </button>
           )}
           <CreateFolderDialog parentId={folderId} onSuccess={() => fetchContents(folderId)} />
