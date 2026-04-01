@@ -50,46 +50,6 @@ export async function getItems(
 }
 
 // ---------------------------------------------------------------------------
-// Cached: get shared items visible to a user (via folder_shares)
-// ---------------------------------------------------------------------------
-export async function getSharedItems(
-  userEmail: string,
-  parentId: string | null
-): Promise<Item[]> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag(`shared-items:${userEmail}:${parentId ?? "root"}`);
-
-  // Find all folder IDs shared with this email
-  const { data: shares } = await supabaseAdmin
-    .from("folder_shares")
-    .select("item_id")
-    .eq("user_email", userEmail);
-
-  if (!shares || shares.length === 0) return [];
-
-  const sharedFolderIds = shares.map((s) => s.item_id);
-
-  if (!parentId) {
-    // At root, show the shared folders themselves
-    const { data } = await supabaseAdmin
-      .from("items")
-      .select("id, parent_id, name, size, mime_type, s3_key, created_at")
-      .in("id", sharedFolderIds)
-      .order("name");
-    return (data as Item[]) || [];
-  }
-
-  // Inside a shared folder — show children if the parent is in the shared tree
-  const { data } = await supabaseAdmin
-    .from("items")
-    .select("id, parent_id, name, size, mime_type, s3_key, created_at")
-    .eq("parent_id", parentId)
-    .order("name");
-  return (data as Item[]) || [];
-}
-
-// ---------------------------------------------------------------------------
 // Cached: get breadcrumbs via the Postgres RPC function (1 query, not N)
 // ---------------------------------------------------------------------------
 export async function getBreadcrumbs(
@@ -149,21 +109,4 @@ export async function getThumbnailUrls(
   return urlMap;
 }
 
-// ---------------------------------------------------------------------------
-// Cached: get folder shares for the share modal
-// ---------------------------------------------------------------------------
-export async function getFolderShares(
-  itemId: string
-): Promise<{ user_email: string }[]> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag(`folder-shares:${itemId}`);
 
-  const { data } = await supabaseAdmin
-    .from("folder_shares")
-    .select("user_email, created_at")
-    .eq("item_id", itemId)
-    .order("created_at", { ascending: false });
-
-  return (data as { user_email: string }[]) || [];
-}

@@ -1,8 +1,5 @@
-import { Database } from "./database";
 import { HardDrive } from "./hard-drive";
-import { Shield } from "./shield";
 import { Upload } from "./upload";
-import { Zap } from "./zap";
 import { Folder } from "./folder";
 import { FileIcon } from "./file";
 import { Download } from "./download";
@@ -22,7 +19,7 @@ import { MenuDots } from "./menu-dots";
 import { Refresh } from "./refresh";
 
 export { 
-    Database, HardDrive, Shield, Upload, Zap,
+    HardDrive, Upload,
     Folder, FileIcon, Download, Palette, Close, Add, Sun, Moon,
     Trash, Checkmark, Video, Music, PdfIcon, DocumentIcon,
     Share, MenuDots, Refresh
