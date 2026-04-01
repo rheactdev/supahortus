@@ -6,14 +6,13 @@ import { DaisyUIForm } from "./form";
 import { createFolder } from "@/lib/actions";
 
 interface CreateFolderDialogProps {
+  gardenId: string;
   parentId: string | null;
   userId: string;
-  isAdmin?: boolean;
-  breadcrumbs?: { id: string; name: string }[];
   onSuccess: () => void;
 }
 
-export function CreateFolderDialog({ parentId, userId, onSuccess, isAdmin, breadcrumbs }: CreateFolderDialogProps) {
+export function CreateFolderDialog({ gardenId, parentId, userId, onSuccess }: CreateFolderDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,7 +45,7 @@ export function CreateFolderDialog({ parentId, userId, onSuccess, isAdmin, bread
     setError("");
 
     try {
-      await createFolder(cleanName, userId, parentId);
+      await createFolder(cleanName, gardenId, userId, parentId);
       setIsOpen(false);
       onSuccess();
     } catch (err: any) {
@@ -56,11 +55,8 @@ export function CreateFolderDialog({ parentId, userId, onSuccess, isAdmin, bread
     }
   };
 
-  const showAddButton = isAdmin || (breadcrumbs && breadcrumbs.length > 0);
-
   return (
     <>
-    {showAddButton && (
       <button
         onClick={() => setIsOpen(true)}
         className="btn btn-soft"
@@ -68,7 +64,6 @@ export function CreateFolderDialog({ parentId, userId, onSuccess, isAdmin, bread
         <Add size={18} />
         <span className="hidden sm:block">New Folder</span>
       </button>
-    )}
 
       {isOpen && (
         <dialog className="modal modal-open bg-black/40 backdrop-blur-sm" open>

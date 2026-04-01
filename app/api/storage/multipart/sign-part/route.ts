@@ -18,7 +18,10 @@ export async function GET(request: Request) {
   const partNumber = searchParams.get("partNumber");
 
   if (!uploadId || !key || !partNumber) {
-    return NextResponse.json({ error: "Missing required parameters" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing required parameters" },
+      { status: 400 }
+    );
   }
 
   try {
@@ -34,6 +37,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ url });
   } catch (error) {
     console.error("Sign part error:", error);
-    return NextResponse.json({ error: "Failed to sign part" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to sign part" },
+      { status: 500 }
+    );
   }
 }

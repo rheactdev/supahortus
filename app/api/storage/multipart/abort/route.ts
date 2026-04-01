@@ -12,13 +12,14 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const userId = authData.claims.sub as string;
-
   try {
-    const { uploadId, key } = await request.json();
+    const { uploadId, key, itemId } = await request.json();
 
     if (!uploadId || !key) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
     }
 
     // Abort S3 multipart upload
@@ -31,16 +32,20 @@ export async function DELETE(request: Request) {
     );
 
     // Clean up the pending DB row
-    await supabaseAdmin
-      .from("items")
-      .delete()
-      .eq("s3_key", key)
-      .eq("owner_id", userId)
-      .eq("status", "pending");
+    if (itemId) {
+      await supabaseAdmin
+        .from("items")
+        .delete()
+        .eq("id", itemId)
+        .eq("status", "pending");
+    }
 
     return NextResponse.json({ aborted: true });
   } catch (error) {
     console.error("Abort multipart error:", error);
-    return NextResponse.json({ error: "Failed to abort multipart upload" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to abort multipart upload" },
+      { status: 500 }
+    );
   }
 }

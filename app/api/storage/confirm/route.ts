@@ -19,9 +19,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "itemId is required" }, { status: 400 });
     }
 
+    // Fetch item and verify membership
     const { data: item, error: fetchError } = await supabaseAdmin
       .from("items")
-      .select("owner_id, status")
+      .select("garden_id, status")
       .eq("id", itemId)
       .single();
 
@@ -29,7 +30,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
     }
 
-    if (item.owner_id !== userId) {
+    // Verify user is a member with upload permission
+    const { data: membership } = await supabaseAdmin
+      .from("garden_members")
+      .select("can_upload")
+      .eq("garden_id", item.garden_id)
+      .eq("user_id", userId)
+      .single();
+
+    if (!membership?.can_upload) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -47,6 +56,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ confirmed: true });
   } catch (error) {
     console.error("Confirm error:", error);
-    return NextResponse.json({ error: "Failed to confirm upload" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to confirm upload" },
+      { status: 500 }
+    );
   }
 }

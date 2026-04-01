@@ -16,11 +16,14 @@ export async function GET(request: Request) {
   const id = searchParams.get("id");
 
   if (!id) {
-    return NextResponse.json({ error: "id query parameter is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "id query parameter is required" },
+      { status: 400 }
+    );
   }
 
   try {
-    // Look up s3_key from DB (RLS enforces access)
+    // RLS enforces access — only garden members can SELECT items
     const { data: item, error: fetchError } = await supabase
       .from("items")
       .select("s3_key, name")
@@ -50,6 +53,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ url });
   } catch (error) {
     console.error("Download presign error:", error);
-    return NextResponse.json({ error: "Failed to generate download URL" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to generate download URL" },
+      { status: 500 }
+    );
   }
 }

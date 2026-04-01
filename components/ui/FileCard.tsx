@@ -8,29 +8,27 @@ import {
   DocumentIcon,
 } from "@/components/icons/liquid-glass";
 import { deleteItem, renameItem, createShareLink } from "@/lib/actions";
-
-type Item = {
-  id: string;
-  name: string;
-  size: number | null;
-  mime_type: string | null;
-  s3_key: string;
-  created_at: string;
-};
+import type { Item } from "@/lib/data";
 
 interface FileCardProps {
   item: Item;
   thumbnailUrl?: string;
+  gardenId: string;
   userId: string;
   folderId: string | null;
+  canUpload: boolean;
+  canDelete: boolean;
   onRefresh: () => void;
 }
 
 export const FileCard = memo(function FileCard({
   item,
   thumbnailUrl,
+  gardenId,
   userId,
   folderId,
+  canUpload,
+  canDelete,
   onRefresh,
 }: FileCardProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -41,24 +39,15 @@ export const FileCard = memo(function FileCard({
 
   const isImage = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(item.name);
 
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024,
-      dm = 2,
-      sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
-  };
-
   const handleDownload = () => {
-    window.location.href = `/api/s3/download?action=download&download=true&id=${encodeURIComponent(item.id)}`;
+    window.location.href = `/api/storage/download?action=download&download=true&id=${encodeURIComponent(item.id)}`;
     setDropdownOpen(false);
   };
 
   const handleDelete = async () => {
     if (window.confirm(`Are you sure you want to delete ${item.name}?`)) {
       try {
-        await deleteItem(item.id, userId, folderId);
+        await deleteItem(item.id, gardenId, userId);
         onRefresh();
       } catch (err) {
         console.error("Failed to delete", err);
@@ -69,7 +58,7 @@ export const FileCard = memo(function FileCard({
 
   const handleShare = async () => {
     try {
-      const url = await createShareLink(item.id, userId);
+      const url = await createShareLink(item.id, gardenId, userId);
       await navigator.clipboard.writeText(url);
       setToast(true);
       setTimeout(() => setToast(false), 3000);
@@ -83,7 +72,7 @@ export const FileCard = memo(function FileCard({
     if (!renameName.trim() || renameName.trim() === item.name) return;
     setRenameLoading(true);
     try {
-      await renameItem(item.id, renameName.trim(), userId, folderId);
+      await renameItem(item.id, renameName.trim(), gardenId, userId);
       setRenameOpen(false);
       onRefresh();
     } catch (err) {
@@ -119,33 +108,39 @@ export const FileCard = memo(function FileCard({
                     <Share size={16} className="text-info" /> Share Link
                   </button>
                 </li>
-                <li>
-                  <button
-                    onClick={() => {
-                      setRenameOpen(true);
-                      setRenameName(item.name);
-                      setDropdownOpen(false);
-                    }}
-                  >
-                    <DocumentIcon size={16} className="text-warning" />{" "}
-                    Rename
-                  </button>
-                </li>
+                {canUpload && (
+                  <li>
+                    <button
+                      onClick={() => {
+                        setRenameOpen(true);
+                        setRenameName(item.name);
+                        setDropdownOpen(false);
+                      }}
+                    >
+                      <DocumentIcon size={16} className="text-warning" />{" "}
+                      Rename
+                    </button>
+                  </li>
+                )}
                 <li>
                   <button onClick={handleDownload}>
                     <Download size={16} className="text-secondary" />{" "}
                     Download
                   </button>
                 </li>
-                <div className="divider my-0" />
-                <li>
-                  <button
-                    onClick={handleDelete}
-                    className="text-error hover:bg-error/10 hover:text-error"
-                  >
-                    <Trash size={16} /> Delete
-                  </button>
-                </li>
+                {canDelete && (
+                  <>
+                    <div className="divider my-0" />
+                    <li>
+                      <button
+                        onClick={handleDelete}
+                        className="text-error hover:bg-error/10 hover:text-error"
+                      >
+                        <Trash size={16} /> Delete
+                      </button>
+                    </li>
+                  </>
+                )}
               </ul>
             </details>
           </div>
@@ -174,9 +169,6 @@ export const FileCard = memo(function FileCard({
           <div className="p-4 flex flex-col gap-1 mt-auto group-hover:opacity-50 transition-opacity">
             <span className="font-medium truncate text-sm" title={item.name}>
               {item.name}
-            </span>
-            <span className="text-xs text-base-content/50">
-              {item.size !== null ? formatSize(item.size) : ""}
             </span>
           </div>
         </div>

@@ -16,7 +16,10 @@ export async function GET(request: Request) {
   const key = searchParams.get("key");
 
   if (!uploadId || !key) {
-    return NextResponse.json({ error: "Missing required parameters" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing required parameters" },
+      { status: 400 }
+    );
   }
 
   try {
@@ -37,6 +40,9 @@ export async function GET(request: Request) {
     return NextResponse.json(parts);
   } catch (error) {
     console.error("List parts error:", error);
-    return NextResponse.json({ error: "Failed to list parts" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to list parts" },
+      { status: 500 }
+    );
   }
 }

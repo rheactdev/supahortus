@@ -5,22 +5,14 @@ import { UppyUploader } from "./UppyUploader";
 import { CreateFolderDialog } from "./CreateFolderDialog";
 import {
   Folder,
-  Share,
   MenuDots,
   DocumentIcon,
-  Refresh,
 } from "@/components/icons/liquid-glass";
 import { FileCard } from "./FileCard";
 import Link from "next/link";
 import { Breadcrumb } from "./breadcrumb";
 import { useRouter } from "next/navigation";
-import {
-  renameItem,
-  shareFolder,
-  unshareFolder,
-  invalidateItemsCache,
-  fetchFolderShares,
-} from "@/lib/actions";
+import { renameItem } from "@/lib/actions";
 import type { Item, BreadcrumbItem } from "@/lib/data";
 
 interface DriveExplorerProps {
@@ -28,8 +20,11 @@ interface DriveExplorerProps {
   breadcrumbs: BreadcrumbItem[];
   thumbnailUrls: Record<string, string>;
   folderId: string | null;
+  gardenId: string;
   userId: string;
-  isAdmin: boolean;
+  canUpload: boolean;
+  canDelete: boolean;
+  role: string;
 }
 
 export function DriveExplorer({
@@ -37,28 +32,23 @@ export function DriveExplorer({
   breadcrumbs,
   thumbnailUrls,
   folderId,
+  gardenId,
   userId,
-  isAdmin,
+  canUpload,
+  canDelete,
+  role,
 }: DriveExplorerProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  // UI-only state (modals, inputs, toasts)
-  const [shareModal, setShareModal] = useState<Item | null>(null);
-  const [shareEmail, setShareEmail] = useState("");
-  const [shareLoading, setShareLoading] = useState(false);
-  const [shareToast, setShareToast] = useState("");
-  const [currentShares, setCurrentShares] = useState<
-    { user_email: string }[]
-  >([]);
+  const [toast, setToast] = useState("");
   const [renameModal, setRenameModal] = useState<Item | null>(null);
   const [renameName, setRenameName] = useState("");
   const [renameLoading, setRenameLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
 
   const showToast = useCallback((msg: string) => {
-    setShareToast(msg);
-    setTimeout(() => setShareToast(""), 3000);
+    setToast(msg);
+    setTimeout(() => setToast(""), 3000);
   }, []);
 
   const refreshData = useCallback(() => {
@@ -67,42 +57,6 @@ export function DriveExplorer({
     });
   }, [router, startTransition]);
 
-  // Fetch shares for the share modal (on-demand, not cached in page)
-  const fetchShares = useCallback(async (itemId: string) => {
-    try {
-      const shares = await fetchFolderShares(itemId);
-      setCurrentShares(shares);
-    } catch {
-      setCurrentShares([]);
-    }
-  }, []);
-
-  const handleShareFolder = async () => {
-    if (!shareModal || !shareEmail) return;
-    setShareLoading(true);
-    try {
-      await shareFolder(shareModal.id, shareEmail, userId);
-      showToast(`Shared with ${shareEmail}`);
-      setShareEmail("");
-      fetchShares(shareModal.id);
-    } catch (err: any) {
-      showToast(err.message || "Failed to share");
-    } finally {
-      setShareLoading(false);
-    }
-  };
-
-  const handleUnshare = async (email: string) => {
-    if (!shareModal) return;
-    try {
-      await unshareFolder(shareModal.id, email, userId);
-      showToast(`Unshared with ${email}`);
-      fetchShares(shareModal.id);
-    } catch {
-      showToast("Failed to unshare folder");
-    }
-  };
-
   const handleRename = async () => {
     if (!renameModal || !renameName.trim()) return;
     setRenameLoading(true);
@@ -110,8 +64,8 @@ export function DriveExplorer({
       await renameItem(
         renameModal.id,
         renameName.trim(),
-        userId,
-        folderId
+        gardenId,
+        userId
       );
       showToast(`Renamed to ${renameName.trim()}`);
       setRenameModal(null);
@@ -124,58 +78,30 @@ export function DriveExplorer({
     }
   };
 
-  const folders = items.filter((i) => i.size === null);
-  const files = items.filter((i) => i.size !== null);
+  const folders = items.filter((i) => i.type === "folder");
+  const files = items.filter((i) => i.type === "file");
 
   return (
     <div className="flex flex-col gap-6 w-full">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <Breadcrumb breadcrumbs={breadcrumbs} />
+        <Breadcrumb breadcrumbs={breadcrumbs} gardenId={gardenId} />
         <div className="flex gap-2 items-center">
-          {isAdmin && (
-            <button
-              className="btn btn-soft tooltip tooltip-top"
-              data-tip="Sync DB with bucket"
-              disabled={syncing}
-              onClick={async () => {
-                setSyncing(true);
-                try {
-                  const res = await fetch("/api/s3/sync", { method: "POST" });
-                  const data = await res.json();
-                  if (data.queued) {
-                    showToast("Sync queued — refreshing in a few seconds…");
-                    setTimeout(() => {
-                      refreshData();
-                    }, 5000);
-                  } else {
-                    showToast(data.error || "Sync failed");
-                  }
-                } catch {
-                  showToast("Sync failed");
-                } finally {
-                  setSyncing(false);
-                }
-              }}
-            >
-              {syncing ? (
-                <span className="loading loading-spinner loading-xs" />
-              ) : (
-                <Refresh size={16} />
-              )}
-            </button>
+          {canUpload && (
+            <>
+              <CreateFolderDialog
+                gardenId={gardenId}
+                parentId={folderId}
+                userId={userId}
+                onSuccess={refreshData}
+              />
+              <UppyUploader
+                gardenId={gardenId}
+                parentId={folderId}
+                userId={userId}
+                onUploadSuccess={refreshData}
+              />
+            </>
           )}
-          <CreateFolderDialog
-            breadcrumbs={breadcrumbs}
-            isAdmin={isAdmin}
-            parentId={folderId}
-            userId={userId}
-            onSuccess={refreshData}
-          />
-          <UppyUploader
-            parentId={folderId}
-            userId={userId}
-            onUploadSuccess={refreshData}
-          />
         </div>
       </div>
 
@@ -197,7 +123,7 @@ export function DriveExplorer({
                 key={folder.id}
                 className="card bg-base-200/50 hover:bg-base-300/60 border border-base-content/5 hover:border-primary/30 group active:scale-95 relative overflow-visible"
               >
-                {isAdmin && (
+                {canUpload && (
                   <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
                     <details className="dropdown dropdown-end">
                       <summary className="btn btn-sm btn-square btn-soft shadow-sm">
@@ -220,26 +146,13 @@ export function DriveExplorer({
                             Rename
                           </button>
                         </li>
-                        <li>
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setShareModal(folder);
-                              fetchShares(folder.id);
-                            }}
-                          >
-                            <Share size={16} className="text-info" /> Share
-                            Folder
-                          </button>
-                        </li>
                       </ul>
                     </details>
                   </div>
                 )}
 
                 <Link
-                  href={`/dashboard?folder=${folder.id}`}
+                  href={`/dashboard/garden/${gardenId}?folder=${folder.id}`}
                   className="card-body flex flex-col justify-center items-center gap-3"
                 >
                   <div className="p-3 bg-secondary/10 rounded-lg text-secondary group-hover:bg-secondary group-hover:text-secondary-content">
@@ -260,8 +173,11 @@ export function DriveExplorer({
                 key={file.id}
                 item={file}
                 thumbnailUrl={thumbnailUrls[file.id]}
+                gardenId={gardenId}
                 userId={userId}
                 folderId={folderId}
+                canUpload={canUpload}
+                canDelete={canDelete}
                 onRefresh={refreshData}
               />
             ))}
@@ -321,101 +237,10 @@ export function DriveExplorer({
         </dialog>
       )}
 
-      {shareModal && (
-        <dialog className="modal modal-open">
-          <div className="modal-box max-w-md">
-            <h3 className="font-bold text-xl mb-1">Share Folder</h3>
-            <p className="text-sm text-base-content/60 mb-6">
-              Share <strong>{shareModal.name}</strong> with other users.
-            </p>
-
-            <div className="flex flex-col gap-4">
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  placeholder="user@example.com"
-                  className="input input-bordered flex-1"
-                  value={shareEmail}
-                  onChange={(e) => setShareEmail(e.target.value)}
-                  onKeyDown={(e) =>
-                    e.key === "Enter" && handleShareFolder()
-                  }
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={handleShareFolder}
-                  disabled={!shareEmail || shareLoading}
-                >
-                  {shareLoading ? (
-                    <span className="loading loading-spinner loading-sm" />
-                  ) : (
-                    "Share"
-                  )}
-                </button>
-              </div>
-
-              <div className="divider text-xs opacity-30 mt-2 mb-0 uppercase tracking-widest font-bold">
-                Currently Shared With
-              </div>
-
-              <div className="min-h-[100px] max-h-[200px] overflow-y-auto flex flex-col gap-2 py-2">
-                {currentShares.length === 0 ? (
-                  <div className="text-center py-4 text-sm text-base-content/30 italic">
-                    Not shared with anyone yet
-                  </div>
-                ) : (
-                  currentShares.map((share) => (
-                    <div
-                      key={share.user_email}
-                      className="flex justify-between items-center p-2 rounded-lg bg-base-200/50 group"
-                    >
-                      <span
-                        className="text-sm font-medium truncate flex-1 pr-2"
-                        title={share.user_email}
-                      >
-                        {share.user_email}
-                      </span>
-                      <button
-                        className="btn btn-ghost btn-xs text-error hover:bg-error/10"
-                        onClick={() => handleUnshare(share.user_email)}
-                      >
-                        Unshare
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="modal-action">
-              <button
-                className="btn btn-ghost btn-block"
-                onClick={() => {
-                  setShareModal(null);
-                  setShareEmail("");
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-          <form method="dialog" className="modal-backdrop">
-            <button
-              onClick={() => {
-                setShareModal(null);
-                setShareEmail("");
-              }}
-            >
-              close
-            </button>
-          </form>
-        </dialog>
-      )}
-
-      {shareToast && (
+      {toast && (
         <div className="toast toast-end z-50">
           <div className="alert alert-info shadow-lg font-medium text-sm">
-            <span>{shareToast}</span>
+            <span>{toast}</span>
           </div>
         </div>
       )}

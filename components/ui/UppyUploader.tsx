@@ -7,7 +7,7 @@ import AwsS3 from "@uppy/aws-s3";
 import ThumbnailGenerator from "@uppy/thumbnail-generator";
 import { Upload, Trash, Checkmark, FileIcon, Add, Video, Music, PdfIcon, DocumentIcon } from "@/components/icons/liquid-glass";
 import { QueueUpload } from "./queueupload";
-import { invalidateItemsCache } from "@/lib/actions";
+import { invalidateGardenCache } from "@/lib/actions";
 
 const getFileIcon = (type: string, size = 64) => {
   if (type.startsWith('video/')) return <Video size={size} />;
@@ -19,7 +19,7 @@ const getFileIcon = (type: string, size = 64) => {
 
 const MULTIPART_THRESHOLD = 50 * 1024 * 1024; // 50 MB
 
-export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: string | null, userId: string, onUploadSuccess: () => void }) {
+export function UppyUploader({ gardenId, parentId, userId, onUploadSuccess }: { gardenId: string, parentId: string | null, userId: string, onUploadSuccess: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
   const parentIdRef = useRef(parentId);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -37,14 +37,14 @@ export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: 
 
     // --- Single-part upload (files <= 50 MB) ---
     async getUploadParameters(file) {
-      const res = await fetch("/api/s3/presign", {
+      const res = await fetch("/api/storage/presign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           filename: file.name,
           contentType: file.type || "application/octet-stream",
           parentId: parentIdRef.current,
-          size: file.size,
+          gardenId,
         }),
       });
       const data = await res.json();
@@ -54,14 +54,14 @@ export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: 
 
     // --- Multipart upload (files > 50 MB) ---
     async createMultipartUpload(file) {
-      const res = await fetch("/api/s3/multipart/create", {
+      const res = await fetch("/api/storage/multipart/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           filename: file.name,
           contentType: file.type || "application/octet-stream",
           parentId: parentIdRef.current,
-          size: file.size,
+          gardenId,
         }),
       });
       const data = await res.json();
@@ -75,18 +75,18 @@ export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: 
         key,
         partNumber: String(partNumber),
       });
-      const res = await fetch(`/api/s3/multipart/sign-part?${params}`);
+      const res = await fetch(`/api/storage/multipart/sign-part?${params}`);
       return await res.json();
     },
 
     async listParts(_file, { uploadId, key }) {
       const params = new URLSearchParams({ uploadId: uploadId ?? "", key });
-      const res = await fetch(`/api/s3/multipart/list-parts?${params}`);
+      const res = await fetch(`/api/storage/multipart/list-parts?${params}`);
       return await res.json();
     },
 
     async completeMultipartUpload(_file, { uploadId, key, parts }) {
-      await fetch("/api/s3/multipart/complete", {
+      await fetch("/api/storage/multipart/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ uploadId, key, parts }),
@@ -95,7 +95,7 @@ export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: 
     },
 
     async abortMultipartUpload(_file, { uploadId, key }) {
-      await fetch("/api/s3/multipart/abort", {
+      await fetch("/api/storage/multipart/abort", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ uploadId, key }),
@@ -119,7 +119,7 @@ export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: 
           result.successful.map(async (file: any) => {
             const itemId = itemIdMap.current.get(file.id);
             if (itemId) {
-              await fetch("/api/s3/confirm", {
+              await fetch("/api/storage/confirm", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ itemId }),
@@ -128,7 +128,7 @@ export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: 
             }
           })
         );
-        await invalidateItemsCache(userId, parentIdRef.current);
+        await invalidateGardenCache(gardenId);
         onUploadSuccess();
       }
     };
@@ -137,7 +137,7 @@ export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: 
     return () => {
       uppy.off("complete", handleComplete);
     };
-  }, [uppy, onUploadSuccess, userId]);
+  }, [uppy, onUploadSuccess, gardenId]);
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);

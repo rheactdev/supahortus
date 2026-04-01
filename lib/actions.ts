@@ -8,62 +8,133 @@ import {
   CopyObjectCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
+import { Client as WorkflowClient } from "@upstash/workflow";
+import { Client as QStashClient } from "@upstash/qstash";
 import { headers } from "next/headers";
+import { buildS3Key } from "@/lib/data";
+
+const workflowClient = new WorkflowClient({ token: process.env.QSTASH_TOKEN! });
+const qstashClient = new QStashClient({ token: process.env.QSTASH_TOKEN! });
 
 // ---------------------------------------------------------------------------
-// Delete an item (file or folder, with S3 cleanup)
+// Helpers
 // ---------------------------------------------------------------------------
-export async function deleteItem(
-  itemId: string,
+async function requireMembership(
+  gardenId: string,
   userId: string,
-  parentId: string | null
+  permission?: "upload" | "delete" | "owner"
 ) {
-  // Fetch item
-  const { data: item, error: fetchError } = await supabaseAdmin
-    .from("items")
-    .select("id, s3_key, size, owner_id")
-    .eq("id", itemId)
+  const { data, error } = await supabaseAdmin
+    .from("garden_members")
+    .select("can_upload, can_delete, role")
+    .eq("garden_id", gardenId)
+    .eq("user_id", userId)
     .single();
 
-  if (fetchError || !item) throw new Error("Item not found");
-  if (item.owner_id !== userId) throw new Error("Forbidden");
+  if (error || !data) throw new Error("Not a member of this garden");
 
-  const isFolder = item.size === null;
+  if (permission === "upload" && !data.can_upload)
+    throw new Error("No upload permission");
+  if (permission === "delete" && !data.can_delete)
+    throw new Error("No delete permission");
+  if (permission === "owner" && data.role !== "owner")
+    throw new Error("Not a garden owner");
 
-  // Collect S3 keys before deleting from DB
-  let keysToDelete: string[];
-  if (isFolder) {
-    const { data: descendants } = await supabaseAdmin
-      .from("items")
-      .select("s3_key")
-      .like("s3_key", `${item.s3_key}%`);
-    keysToDelete = (descendants || []).map((d) => d.s3_key);
-  } else {
-    keysToDelete = [item.s3_key];
-  }
+  return data;
+}
 
-  // Delete from DB first (instant — CASCADE handles children)
-  const { error: deleteError } = await supabaseAdmin
+function getOrigin(reqHeaders: Headers): string {
+  return reqHeaders.get("x-forwarded-proto") + "://" + reqHeaders.get("host");
+}
+
+// ---------------------------------------------------------------------------
+// Create a garden
+// ---------------------------------------------------------------------------
+export async function createGarden(name: string, userId: string) {
+  if (!name.trim()) throw new Error("Garden name is required");
+
+  const { data: garden, error } = await supabaseAdmin
+    .from("gardens")
+    .insert({ name: name.trim(), created_by: userId })
+    .select("id")
+    .single();
+
+  if (error) throw error;
+
+  // Add creator as owner with full permissions
+  await supabaseAdmin.from("garden_members").insert({
+    garden_id: garden.id,
+    user_id: userId,
+    role: "owner",
+    can_upload: true,
+    can_delete: true,
+  });
+
+  // Create the garden root folder marker in S3
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: `${garden.id}/`,
+      Body: "",
+    })
+  );
+
+  updateTag(`user-gardens-${userId}`);
+  return { id: garden.id };
+}
+
+// ---------------------------------------------------------------------------
+// Rename a garden
+// ---------------------------------------------------------------------------
+export async function renameGarden(
+  gardenId: string,
+  newName: string,
+  userId: string
+) {
+  await requireMembership(gardenId, userId, "owner");
+
+  const { error } = await supabaseAdmin
+    .from("gardens")
+    .update({ name: newName.trim() })
+    .eq("id", gardenId);
+
+  if (error) throw error;
+  updateTag(`garden-${gardenId}`);
+  updateTag(`user-gardens-${userId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Delete a garden (owner only — cascades items, members)
+// ---------------------------------------------------------------------------
+export async function deleteGarden(gardenId: string, userId: string) {
+  await requireMembership(gardenId, userId, "owner");
+
+  // Collect all S3 keys before deleting from DB
+  const { data: items } = await supabaseAdmin
     .from("items")
+    .select("s3_key")
+    .eq("garden_id", gardenId);
+
+  const keysToDelete = (items || []).map((i) => i.s3_key);
+  // Add the garden root marker
+  keysToDelete.push(`${gardenId}/`);
+
+  // Delete garden from DB (CASCADE deletes items + members)
+  const { error } = await supabaseAdmin
+    .from("gardens")
     .delete()
-    .eq("id", itemId);
+    .eq("id", gardenId);
 
-  if (deleteError) throw deleteError;
+  if (error) throw error;
 
-  // Invalidate cache immediately so the UI updates
-  updateTag(`items:${userId}:${parentId ?? "root"}`);
+  updateTag(`user-gardens-${userId}`);
 
-  // Enqueue background S3 cleanup via QStash
+  // Enqueue background S3 cleanup — garden rows are already deleted,
+  // so we pass pre-collected keys directly to the delete worker
   if (keysToDelete.length > 0) {
-    const { Client } = await import("@upstash/qstash");
-    const qstash = new Client({
-      baseUrl: process.env.QSTASH_URL!,
-      token: process.env.QSTASH_TOKEN!,
-    });
     const reqHeaders = await headers();
-    const origin = reqHeaders.get("x-forwarded-proto") + "://" + reqHeaders.get("host");
-    await qstash.publishJSON({
-      url: `${origin}/api/s3/delete-worker`,
+    await qstashClient.publishJSON({
+      url: `${getOrigin(reqHeaders)}/api/storage/delete-worker`,
       body: { keys: keysToDelete },
       retries: 3,
     });
@@ -71,28 +142,154 @@ export async function deleteItem(
 }
 
 // ---------------------------------------------------------------------------
-// Rename an item (updates DB + S3; folders enqueue background worker)
+// Add a member to a garden
 // ---------------------------------------------------------------------------
-export async function renameItem(
-  itemId: string,
-  newName: string,
+export async function addGardenMember(
+  gardenId: string,
+  email: string,
   userId: string,
-  parentId: string | null
+  permissions: { can_upload?: boolean; can_delete?: boolean } = {}
 ) {
-  if (!newName || newName.includes("/")) throw new Error("Invalid name");
+  await requireMembership(gardenId, userId, "owner");
 
+  // Look up user by email
+  const { data: userData, error: lookupError } =
+    await supabaseAdmin.auth.admin.listUsers();
+
+  if (lookupError) throw lookupError;
+
+  const targetUser = userData.users.find((u) => u.email === email);
+
+  if (!targetUser) {
+    // Invite the user, they'll be added on first login
+    const reqHeaders = await headers();
+    await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${getOrigin(reqHeaders)}/api/auth/callback?next=/dashboard`,
+    });
+    throw new Error("User invited — they must accept the invite first");
+  }
+
+  const { error } = await supabaseAdmin.from("garden_members").insert({
+    garden_id: gardenId,
+    user_id: targetUser.id,
+    role: "member",
+    can_upload: permissions.can_upload ?? false,
+    can_delete: permissions.can_delete ?? false,
+  });
+
+  if (error) {
+    if (error.code === "23505") throw new Error("User is already a member");
+    throw error;
+  }
+
+  updateTag(`garden-${gardenId}`);
+  updateTag(`user-gardens-${targetUser.id}`);
+}
+
+// ---------------------------------------------------------------------------
+// Update a member's permissions
+// ---------------------------------------------------------------------------
+export async function updateGardenMember(
+  gardenId: string,
+  targetUserId: string,
+  userId: string,
+  permissions: { can_upload?: boolean; can_delete?: boolean }
+) {
+  await requireMembership(gardenId, userId, "owner");
+
+  const { error } = await supabaseAdmin
+    .from("garden_members")
+    .update(permissions)
+    .eq("garden_id", gardenId)
+    .eq("user_id", targetUserId);
+
+  if (error) throw error;
+  updateTag(`garden-${gardenId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Remove a member from a garden
+// ---------------------------------------------------------------------------
+export async function removeGardenMember(
+  gardenId: string,
+  targetUserId: string,
+  userId: string
+) {
+  await requireMembership(gardenId, userId, "owner");
+
+  // Don't let owner remove themselves
+  if (targetUserId === userId) {
+    throw new Error("Cannot remove yourself — transfer ownership or delete the garden");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("garden_members")
+    .delete()
+    .eq("garden_id", gardenId)
+    .eq("user_id", targetUserId);
+
+  if (error) throw error;
+  updateTag(`garden-${gardenId}`);
+  updateTag(`user-gardens-${targetUserId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Delete an item (file or folder, with S3 cleanup)
+// ---------------------------------------------------------------------------
+export async function deleteItem(
+  itemId: string,
+  gardenId: string,
+  userId: string
+) {
+  await requireMembership(gardenId, userId, "delete");
+
+  // Verify item exists and belongs to this garden
   const { data: item, error: fetchError } = await supabaseAdmin
     .from("items")
-    .select("id, name, s3_key, size, parent_id, owner_id")
+    .select("id, garden_id")
     .eq("id", itemId)
     .single();
 
   if (fetchError || !item) throw new Error("Item not found");
-  if (item.owner_id !== userId) throw new Error("Forbidden");
+  if (item.garden_id !== gardenId) throw new Error("Item not in this garden");
 
-  const isFolder = item.size === null;
+  // Trigger durable delete workflow (handles DB + S3 + cache revalidation)
+  const reqHeaders = await headers();
+  await workflowClient.trigger({
+    url: `${getOrigin(reqHeaders)}/api/workflow/delete`,
+    body: { gardenId, itemId },
+    retries: 3,
+  });
+
+  // Optimistic: invalidate cache immediately so UI reflects the delete
+  updateTag(`garden-${gardenId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Rename an item
+// ---------------------------------------------------------------------------
+export async function renameItem(
+  itemId: string,
+  newName: string,
+  gardenId: string,
+  userId: string
+) {
+  if (!newName || newName.includes("/")) throw new Error("Invalid name");
+  await requireMembership(gardenId, userId, "upload");
+
+  const { data: item, error: fetchError } = await supabaseAdmin
+    .from("items")
+    .select("id, name, s3_key, type, parent_id, garden_id")
+    .eq("id", itemId)
+    .single();
+
+  if (fetchError || !item) throw new Error("Item not found");
+  if (item.garden_id !== gardenId) throw new Error("Item not in this garden");
+
+  const isFolder = item.type === "folder";
 
   // Compute new s3_key
+  const suffix = isFolder ? `${newName}/` : newName;
   let newS3Key: string;
   if (item.parent_id) {
     const { data: parent } = await supabaseAdmin
@@ -100,15 +297,12 @@ export async function renameItem(
       .select("s3_key")
       .eq("id", item.parent_id)
       .single();
-
-    newS3Key = isFolder
-      ? `${parent?.s3_key || ""}${newName}/`
-      : `${parent?.s3_key || ""}${newName}`;
+    newS3Key = `${parent?.s3_key || ""}${suffix}`;
   } else {
-    newS3Key = isFolder ? `${newName}/` : newName;
+    newS3Key = `${gardenId}/${suffix}`;
   }
 
-  // Update DB
+  // Update this item's DB row immediately (fast for UI)
   const { error: updateError } = await supabaseAdmin
     .from("items")
     .update({ name: newName, s3_key: newS3Key })
@@ -117,17 +311,16 @@ export async function renameItem(
   if (updateError) throw updateError;
 
   if (isFolder) {
-    // Enqueue background worker for descendant key updates
-    const { Client } = await import("@upstash/qstash");
-    const qstash = new Client({
-      baseUrl: process.env.QSTASH_URL!,
-      token: process.env.QSTASH_TOKEN!,
-    });
+    // Trigger durable rename workflow for descendants
     const reqHeaders = await headers();
-    const origin = reqHeaders.get("x-forwarded-proto") + "://" + reqHeaders.get("host");
-    await qstash.publishJSON({
-      url: `${origin}/api/s3/rename-worker`,
-      body: { folderId: itemId, oldPrefix: item.s3_key, newPrefix: newS3Key },
+    await workflowClient.trigger({
+      url: `${getOrigin(reqHeaders)}/api/workflow/rename`,
+      body: {
+        gardenId,
+        folderId: itemId,
+        oldPrefix: item.s3_key,
+        newPrefix: newS3Key,
+      },
       retries: 3,
     });
   } else {
@@ -148,9 +341,55 @@ export async function renameItem(
     );
   }
 
-  // Invalidate caches
-  updateTag(`items:${userId}:${parentId ?? "root"}`);
-  updateTag(`breadcrumbs:${parentId ?? "root"}`);
+  updateTag(`garden-${gardenId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Move an item to a different folder (triggers durable workflow)
+// ---------------------------------------------------------------------------
+export async function moveItem(
+  itemId: string,
+  newParentId: string | null,
+  gardenId: string,
+  userId: string
+) {
+  // Need both upload (to create in new location) and delete (to remove from old)
+  await requireMembership(gardenId, userId, "upload");
+  await requireMembership(gardenId, userId, "delete");
+
+  const { data: item, error: fetchError } = await supabaseAdmin
+    .from("items")
+    .select("id, garden_id, parent_id")
+    .eq("id", itemId)
+    .single();
+
+  if (fetchError || !item) throw new Error("Item not found");
+  if (item.garden_id !== gardenId) throw new Error("Item not in this garden");
+  if (item.parent_id === newParentId) throw new Error("Already in this folder");
+
+  // Compute the new parent's s3_key
+  let newParentS3Key: string;
+  if (newParentId) {
+    const { data: parent } = await supabaseAdmin
+      .from("items")
+      .select("s3_key")
+      .eq("id", newParentId)
+      .single();
+    if (!parent) throw new Error("Destination folder not found");
+    newParentS3Key = parent.s3_key;
+  } else {
+    newParentS3Key = `${gardenId}/`;
+  }
+
+  // Trigger durable move workflow
+  const reqHeaders = await headers();
+  await workflowClient.trigger({
+    url: `${getOrigin(reqHeaders)}/api/workflow/move`,
+    body: { gardenId, itemId, newParentId, newParentS3Key },
+    retries: 3,
+  });
+
+  updateTag(`garden-${gardenId}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -158,32 +397,23 @@ export async function renameItem(
 // ---------------------------------------------------------------------------
 export async function createFolder(
   name: string,
+  gardenId: string,
   userId: string,
   parentId: string | null
 ) {
   if (!name || name.includes("/")) throw new Error("Invalid folder name");
+  await requireMembership(gardenId, userId, "upload");
 
-  // Build s3_key from parent
-  let s3Key = `${name}/`;
-  if (parentId) {
-    const { data: parent } = await supabaseAdmin
-      .from("items")
-      .select("s3_key")
-      .eq("id", parentId)
-      .single();
+  const s3Key = await buildS3Key(gardenId, parentId, `${name}/`);
 
-    if (!parent) throw new Error("Parent folder not found");
-    s3Key = `${parent.s3_key}${name}/`;
-  }
-
-  // Insert folder into DB (folders are immediately ready — no upload step)
   const { data: folder, error: insertError } = await supabaseAdmin
     .from("items")
     .insert({
       name,
       s3_key: s3Key,
       parent_id: parentId || null,
-      owner_id: userId,
+      garden_id: gardenId,
+      type: "folder",
       status: "ready",
     })
     .select("id, s3_key")
@@ -196,79 +426,8 @@ export async function createFolder(
     new PutObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key, Body: "" })
   );
 
-  // Invalidate folder listing
-  updateTag(`items:${userId}:${parentId ?? "root"}`);
-
+  updateTag(`garden-${gardenId}`);
   return { id: folder.id, s3Key: folder.s3_key };
-}
-
-// ---------------------------------------------------------------------------
-// Share a folder with a user
-// ---------------------------------------------------------------------------
-export async function shareFolder(
-  itemId: string,
-  email: string,
-  userId: string
-) {
-  // Verify ownership
-  const { data: item } = await supabaseAdmin
-    .from("items")
-    .select("owner_id")
-    .eq("id", itemId)
-    .single();
-
-  if (!item || item.owner_id !== userId) throw new Error("Forbidden");
-
-  const { error: insertError } = await supabaseAdmin
-    .from("folder_shares")
-    .insert({ item_id: itemId, user_email: email });
-
-  if (insertError) {
-    if (insertError.code === "23505") {
-      throw new Error("Already shared with this user");
-    }
-    throw insertError;
-  }
-
-  // Send invite email
-  const reqHeaders = await headers();
-  const origin = reqHeaders.get("x-forwarded-proto") + "://" + reqHeaders.get("host");
-  await supabaseAdmin.auth.admin
-    .inviteUserByEmail(email, {
-      redirectTo: `${origin}/api/auth/callback?next=/dashboard`,
-    })
-    .catch((err: Error) => console.error("Invite error:", err));
-
-  // Invalidate share list cache
-  updateTag(`folder-shares:${itemId}`);
-}
-
-// ---------------------------------------------------------------------------
-// Unshare a folder
-// ---------------------------------------------------------------------------
-export async function unshareFolder(
-  itemId: string,
-  email: string,
-  userId: string
-) {
-  // Verify ownership
-  const { data: item } = await supabaseAdmin
-    .from("items")
-    .select("owner_id")
-    .eq("id", itemId)
-    .single();
-
-  if (!item || item.owner_id !== userId) throw new Error("Forbidden");
-
-  const { error } = await supabaseAdmin
-    .from("folder_shares")
-    .delete()
-    .eq("item_id", itemId)
-    .eq("user_email", email);
-
-  if (error) throw error;
-
-  updateTag(`folder-shares:${itemId}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -276,16 +435,19 @@ export async function unshareFolder(
 // ---------------------------------------------------------------------------
 export async function createShareLink(
   itemId: string,
+  gardenId: string,
   userId: string
 ): Promise<string> {
-  // Verify ownership
+  await requireMembership(gardenId, userId, "upload");
+
+  // Verify item belongs to this garden
   const { data: item } = await supabaseAdmin
     .from("items")
-    .select("owner_id")
+    .select("garden_id")
     .eq("id", itemId)
     .single();
 
-  if (!item || item.owner_id !== userId) throw new Error("Forbidden");
+  if (!item || item.garden_id !== gardenId) throw new Error("Item not found");
 
   const shortCode = crypto.randomUUID().substring(0, 8);
 
@@ -298,31 +460,12 @@ export async function createShareLink(
   if (error) throw error;
 
   const reqHeaders = await headers();
-  const origin = reqHeaders.get("x-forwarded-proto") + "://" + reqHeaders.get("host");
-  return `${origin}/s/${shortCode}`;
+  return `${getOrigin(reqHeaders)}/s/${shortCode}`;
 }
 
 // ---------------------------------------------------------------------------
-// Invalidate items cache (called from client after upload success)
+// Invalidate garden cache (called from client after upload success)
 // ---------------------------------------------------------------------------
-export async function invalidateItemsCache(
-  userId: string,
-  parentId: string | null
-) {
-  updateTag(`items:${userId}:${parentId ?? "root"}`);
-}
-
-// ---------------------------------------------------------------------------
-// Fetch folder shares (server action wrapper for client components)
-// ---------------------------------------------------------------------------
-export async function fetchFolderShares(
-  itemId: string
-): Promise<{ user_email: string }[]> {
-  const { data } = await supabaseAdmin
-    .from("folder_shares")
-    .select("user_email, created_at")
-    .eq("item_id", itemId)
-    .order("created_at", { ascending: false });
-
-  return (data as { user_email: string }[]) || [];
+export async function invalidateGardenCache(gardenId: string) {
+  updateTag(`garden-${gardenId}`);
 }

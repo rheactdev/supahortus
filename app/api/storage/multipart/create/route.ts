@@ -3,6 +3,7 @@ import { CreateMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { buildS3Key } from "@/lib/data";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -15,26 +16,28 @@ export async function POST(request: Request) {
   const userId = authData.claims.sub as string;
 
   try {
-    const { filename, contentType, parentId, size } = await request.json();
+    const { filename, contentType, parentId, gardenId } = await request.json();
 
-    if (!filename) {
-      return NextResponse.json({ error: "Filename is required" }, { status: 400 });
+    if (!filename || !gardenId) {
+      return NextResponse.json(
+        { error: "filename and gardenId are required" },
+        { status: 400 }
+      );
     }
 
-    // Build s3_key from parent chain
-    let s3Key = filename;
-    if (parentId) {
-      const { data: parent, error: parentError } = await supabaseAdmin
-        .from("items")
-        .select("s3_key")
-        .eq("id", parentId)
-        .single();
+    // Verify upload permission
+    const { data: membership } = await supabaseAdmin
+      .from("garden_members")
+      .select("can_upload")
+      .eq("garden_id", gardenId)
+      .eq("user_id", userId)
+      .single();
 
-      if (parentError || !parent) {
-        return NextResponse.json({ error: "Parent folder not found" }, { status: 404 });
-      }
-      s3Key = `${parent.s3_key}${filename}`;
+    if (!membership?.can_upload) {
+      return NextResponse.json({ error: "No upload permission" }, { status: 403 });
     }
+
+    const s3Key = await buildS3Key(gardenId, parentId || null, filename);
 
     // Insert pending item record
     const { data: item, error: insertError } = await supabaseAdmin
@@ -43,9 +46,9 @@ export async function POST(request: Request) {
         name: filename,
         s3_key: s3Key,
         parent_id: parentId || null,
-        size: size || 0,
+        garden_id: gardenId,
+        type: "file",
         mime_type: contentType || "application/octet-stream",
-        owner_id: userId,
       })
       .select("id")
       .single();
@@ -68,6 +71,9 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Multipart create error:", error);
-    return NextResponse.json({ error: "Failed to create multipart upload" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to create multipart upload" },
+      { status: 500 }
+    );
   }
 }

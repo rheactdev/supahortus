@@ -15,7 +15,10 @@ export async function POST(request: Request) {
     const { uploadId, key, parts } = await request.json();
 
     if (!uploadId || !key || !parts) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
     }
 
     await s3Client.send(
@@ -35,6 +38,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ completed: true });
   } catch (error) {
     console.error("Complete multipart error:", error);
-    return NextResponse.json({ error: "Failed to complete multipart upload" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to complete multipart upload" },
+      { status: 500 }
+    );
   }
 }
