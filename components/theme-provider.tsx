@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 
-type Theme = "light" | "dark" | "retro" | "synthwave" | "cyberpunk" | "dim" | "system";
+type Theme = "nord" | "business";
 
 interface ThemeProviderProps {
   children: React.ReactNode;
@@ -18,9 +18,9 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({
   children,
-  defaultTheme = "system",
+  defaultTheme = "business",
 }: ThemeProviderProps) {
-  const [theme, setThemeState] = useState<Theme>("system");
+  const [theme, setThemeState] = useState<Theme>("business");
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("daisyui-theme") as Theme | null;
@@ -36,10 +36,10 @@ export function ThemeProvider({
   const applyTheme = (newTheme: Theme) => {
     let resolvedTheme = newTheme;
 
-    if (newTheme === "system") {
+    if (newTheme === "business") {
       resolvedTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
+        ? "business"
+        : "nord";
     }
 
     document.documentElement.setAttribute("data-theme", resolvedTheme);
