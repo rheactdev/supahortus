@@ -1,16 +1,17 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Add, Close } from "@/components/icons/liquid-glass";
-import { CloseButton } from "./closebutton";
+import { Add } from "@/components/icons/liquid-glass";
 import { DaisyUIForm } from "./form";
 
 interface CreateFolderDialogProps {
   parentId: string | null;
+  isAdmin?: boolean;
+  breadcrumbs?: { id: string; name: string }[];
   onSuccess: () => void;
 }
 
-export function CreateFolderDialog({ parentId, onSuccess }: CreateFolderDialogProps) {
+export function CreateFolderDialog({ parentId, onSuccess, isAdmin, breadcrumbs }: CreateFolderDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -66,6 +67,7 @@ export function CreateFolderDialog({ parentId, onSuccess }: CreateFolderDialogPr
 
   return (
     <>
+    { (isAdmin || (breadcrumbs?.length && breadcrumbs.length>0)) && (
       <button
         onClick={() => setIsOpen(true)}
         className="btn btn-soft"
@@ -73,6 +75,8 @@ export function CreateFolderDialog({ parentId, onSuccess }: CreateFolderDialogPr
         <Add size={18} />
         <span className="hidden sm:block">New Folder</span>
       </button>
+    )
+}
 
       {isOpen && (
         <dialog className="modal modal-open bg-black/40 backdrop-blur-sm" open>

@@ -175,7 +175,7 @@ export function DriveExplorer() {
         <div className="flex gap-2 items-center">
           {isAdmin && (
             <button
-              className="btn btn-soft btn-sm tooltip tooltip-top"
+              className="btn btn-soft tooltip tooltip-top"
               data-tip="Sync DB with bucket"
               disabled={syncing}
               onClick={async () => {
@@ -204,7 +204,7 @@ export function DriveExplorer() {
               {syncing ? <span className="loading loading-spinner loading-xs" /> : <Refresh size={16} />}
             </button>
           )}
-          <CreateFolderDialog parentId={folderId} onSuccess={() => fetchContents(folderId)} />
+          <CreateFolderDialog breadcrumbs={breadcrumbs} isAdmin={isAdmin} parentId={folderId} onSuccess={() => fetchContents(folderId)} />
           <UppyUploader parentId={folderId} onUploadSuccess={() => fetchContents(folderId)} />
         </div>
       </div>
