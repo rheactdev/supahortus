@@ -6,11 +6,13 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: authData, error: authError } = await supabase.auth.getUser();
+  const { data: authData } = await supabase.auth.getClaims();
 
-  if (authError || !authData?.user) {
+  if (!authData?.claims) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const userId = authData.claims.sub as string;
 
   try {
     const { filename, contentType, parentId, size } = await request.json();
@@ -43,7 +45,7 @@ export async function POST(request: Request) {
         parent_id: parentId || null,
         size: size || 0,
         mime_type: contentType || "application/octet-stream",
-        owner_id: authData.user.id,
+        owner_id: userId,
       })
       .select("id")
       .single();

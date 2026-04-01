@@ -6,13 +6,15 @@ const qstash = new Client({ token: process.env.QSTASH_TOKEN! });
 
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: authData, error: authError } = await supabase.auth.getUser();
+  const { data: authData } = await supabase.auth.getClaims();
 
-  if (authError || !authData?.user) {
+  if (!authData?.claims) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (authData.user.app_metadata?.role !== "admin") {
+  const claims = authData.claims as Record<string, unknown>;
+  const appMeta = claims.app_metadata as Record<string, unknown> | undefined;
+  if (appMeta?.role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -20,7 +22,7 @@ export async function POST(request: Request) {
     const url = new URL(request.url);
     await qstash.publishJSON({
       url: `${url.origin}/api/s3/sync-worker`,
-      body: { ownerId: authData.user.id },
+      body: { ownerId: claims.sub as string },
       retries: 3,
     });
 

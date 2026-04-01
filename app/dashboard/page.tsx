@@ -1,29 +1,40 @@
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getItems, getBreadcrumbs, getThumbnailUrls } from "@/lib/data";
-import { DriveExplorer } from "@/components/ui/DriveExplorer";
-import { connection } from "next/server";
+import dynamic from "next/dynamic";
+
+const DriveExplorer = dynamic(
+  () => import("@/components/ui/DriveExplorer").then((m) => m.DriveExplorer),
+  {
+    loading: () => (
+      <div className="flex justify-center p-12">
+        <span className="loading loading-ring text-primary loading-lg" />
+      </div>
+    ),
+  }
+);
 
 export default async function DashboardPage({
   searchParams,
 }: {
   searchParams: Promise<{ folder?: string }>;
 }) {
-  await connection();
   const { folder: folderId = null } = await searchParams;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data } = await supabase.auth.getClaims();
 
-  if (!user) return null;
+  if (!data?.claims) return null;
 
-  const isAdmin = user.app_metadata?.role === "admin";
+  const userId = data.claims.sub as string;
+  const isAdmin = (data.claims as Record<string, unknown>).app_metadata
+    ? ((data.claims as Record<string, unknown>).app_metadata as Record<string, unknown>)?.role === "admin"
+    : false;
 
-  // These calls are cached by "use cache" in the data functions
-  // Cache key includes userId + folderId, so each user sees their own data
-  const items = await getItems(user.id, folderId);
-  const breadcrumbs = await getBreadcrumbs(folderId);
+  // Parallel data fetching — items + breadcrumbs fire at the same time
+  const [items, breadcrumbs] = await Promise.all([
+    getItems(userId, folderId),
+    getBreadcrumbs(folderId),
+  ]);
 
   // Batch-generate thumbnail URLs for image files (1 call instead of N)
   const imageItems = items.filter(
@@ -58,7 +69,7 @@ export default async function DashboardPage({
           breadcrumbs={breadcrumbs}
           thumbnailUrls={thumbnailUrls}
           folderId={folderId}
-          userId={user.id}
+          userId={userId}
           isAdmin={isAdmin}
         />
       </Suspense>
