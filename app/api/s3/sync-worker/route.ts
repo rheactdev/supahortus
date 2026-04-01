@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { ListObjectsV2Command, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { Receiver } from "@upstash/qstash";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -42,8 +42,8 @@ export async function POST(request: Request) {
       console.log(`[sync-worker] Cleaned up ${staleCount} stale pending items`);
     }
 
-    // 1. Collect every key currently in the bucket
-    const bucketKeys = new Set<string>();
+    // 1. Collect every key + size currently in the bucket
+    const bucketObjects = new Map<string, number>(); // key -> size
     let continuationToken: string | undefined;
 
     do {
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       );
 
       for (const obj of res.Contents ?? []) {
-        if (obj.Key) bucketKeys.add(obj.Key);
+        if (obj.Key) bucketObjects.set(obj.Key, obj.Size ?? 0);
       }
 
       continuationToken = res.IsTruncated
@@ -64,36 +64,32 @@ export async function POST(request: Request) {
         : undefined;
     } while (continuationToken);
 
-    console.log(`[sync-worker] Bucket has ${bucketKeys.size} keys`);
+    console.log(`[sync-worker] Bucket has ${bucketObjects.size} keys`);
 
-    // 2. Get all ready items owned by this user
+    // 2. Get all items owned by this user (any status)
     const { data: items, error: fetchError } = await supabaseAdmin
       .from("items")
-      .select("id, s3_key, size")
-      .eq("owner_id", ownerId)
-      .eq("status", "ready");
+      .select("id, s3_key, size, status")
+      .eq("owner_id", ownerId);
 
     if (fetchError) throw fetchError;
 
+    const dbKeySet = new Set((items ?? []).map((i) => i.s3_key));
+
     console.log(`[sync-worker] DB has ${items?.length ?? 0} items for owner ${ownerId}`);
 
-    if (!items || items.length === 0) {
-      return NextResponse.json({ deleted: 0, kept: 0 });
-    }
-
-    // 3. Delete file items whose s3_key is missing from the bucket
-    const orphanFileIds: string[] = [];
-    for (const item of items) {
-      if (item.size !== null && !bucketKeys.has(item.s3_key)) {
-        orphanFileIds.push(item.id);
+    // 3. DELETE orphans: DB rows whose s3_key doesn't exist in the bucket
+    const orphanIds: string[] = [];
+    for (const item of items ?? []) {
+      // Only delete file items (not folders) whose key is missing
+      if (item.size !== null && !bucketObjects.has(item.s3_key)) {
+        orphanIds.push(item.id);
       }
     }
 
-    console.log(`[sync-worker] Found ${orphanFileIds.length} orphan files out of ${items.filter(i => i.size !== null).length} total files`);
-
-    if (orphanFileIds.length > 0) {
-      for (let i = 0; i < orphanFileIds.length; i += 200) {
-        const batch = orphanFileIds.slice(i, i + 200);
+    if (orphanIds.length > 0) {
+      for (let i = 0; i < orphanIds.length; i += 200) {
+        const batch = orphanIds.slice(i, i + 200);
         const { error: delError, count } = await supabaseAdmin
           .from("items")
           .delete({ count: "exact" })
@@ -103,7 +99,115 @@ export async function POST(request: Request) {
       }
     }
 
-    // 4. Prune empty folders (leaves first, repeat until stable)
+    // 4. CREATE missing: bucket keys that have no DB row
+    const missingKeys: string[] = [];
+    for (const key of bucketObjects.keys()) {
+      if (!dbKeySet.has(key)) {
+        missingKeys.push(key);
+      }
+    }
+
+    console.log(`[sync-worker] Found ${missingKeys.length} bucket objects missing from DB`);
+
+    if (missingKeys.length > 0) {
+      // Sort so parent folders come before children (shorter paths first)
+      missingKeys.sort((a, b) => a.split("/").length - b.split("/").length);
+
+      // Track folder s3_key -> id so we can set parent_id for children
+      // Start with existing folders from DB
+      const folderIdMap = new Map<string, string>();
+      for (const item of items ?? []) {
+        if (item.size === null) {
+          folderIdMap.set(item.s3_key, item.id);
+        }
+      }
+
+      for (const key of missingKeys) {
+        const isFolder = key.endsWith("/");
+        const parts = key.split("/").filter(Boolean);
+        const name = parts[parts.length - (isFolder ? 1 : 0)] || key;
+
+        // Find parent: walk up the path to find an existing folder
+        let parentId: string | null = null;
+        if (parts.length > 1) {
+          // Build the parent folder's s3_key
+          const parentParts = isFolder ? parts.slice(0, -1) : parts.slice(0, -1);
+          const parentKey = parentParts.join("/") + "/";
+
+          // If parent folder doesn't exist in DB yet, create the chain
+          if (!folderIdMap.has(parentKey)) {
+            // Create ancestor folders as needed
+            for (let depth = 1; depth <= parentParts.length; depth++) {
+              const ancestorKey = parentParts.slice(0, depth).join("/") + "/";
+              if (folderIdMap.has(ancestorKey)) continue;
+
+              const ancestorName = parentParts[depth - 1];
+              const ancestorParentKey =
+                depth > 1 ? parentParts.slice(0, depth - 1).join("/") + "/" : null;
+              const ancestorParentId = ancestorParentKey
+                ? folderIdMap.get(ancestorParentKey) ?? null
+                : null;
+
+              const { data: newFolder } = await supabaseAdmin
+                .from("items")
+                .insert({
+                  name: ancestorName,
+                  s3_key: ancestorKey,
+                  parent_id: ancestorParentId,
+                  owner_id: ownerId,
+                  status: "ready",
+                })
+                .select("id")
+                .single();
+
+              if (newFolder) {
+                folderIdMap.set(ancestorKey, newFolder.id);
+                console.log(`[sync-worker] Created ancestor folder: ${ancestorKey}`);
+              }
+            }
+          }
+
+          parentId = folderIdMap.get(parentKey) ?? null;
+        }
+
+        // Detect mime type from extension for files
+        let mimeType: string | null = null;
+        let size: number | null = null;
+        if (!isFolder) {
+          size = bucketObjects.get(key) ?? 0;
+          // Try HeadObject for accurate content-type
+          try {
+            const head = await s3Client.send(
+              new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: key })
+            );
+            mimeType = head.ContentType ?? "application/octet-stream";
+            size = head.ContentLength ?? size;
+          } catch {
+            mimeType = guessMimeType(name);
+          }
+        }
+
+        const { data: newItem } = await supabaseAdmin
+          .from("items")
+          .insert({
+            name,
+            s3_key: key,
+            parent_id: parentId,
+            size,
+            mime_type: mimeType,
+            owner_id: ownerId,
+            status: "ready",
+          })
+          .select("id")
+          .single();
+
+        if (newItem && isFolder) {
+          folderIdMap.set(key, newItem.id);
+        }
+      }
+    }
+
+    // 5. Prune empty folders (leaves first, repeat until stable)
     let pruned = 0;
     let changed = true;
     while (changed) {
@@ -131,8 +235,13 @@ export async function POST(request: Request) {
         (hasChildren ?? []).map((r) => r.parent_id)
       );
 
+      // Only prune folders whose s3_key is also missing from the bucket
       const emptyFolderIds = folderIds.filter(
-        (id) => !parentWithKids.has(id)
+        (id) => {
+          if (parentWithKids.has(id)) return false;
+          const folder = folders.find((f) => f.id === id);
+          return folder && !bucketObjects.has(folder.s3_key);
+        }
       );
 
       if (emptyFolderIds.length === 0) break;
@@ -151,12 +260,32 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
-      deleted: orphanFileIds.length + pruned,
-      kept: items.length - orphanFileIds.length - pruned,
-      bucketObjects: bucketKeys.size,
+      deleted: orphanIds.length + pruned,
+      created: missingKeys.length,
+      kept: (items?.length ?? 0) - orphanIds.length - pruned,
+      bucketObjectCount: bucketObjects.size,
     });
   } catch (error) {
     console.error("Sync worker error:", error);
     return NextResponse.json({ error: "Sync worker failed" }, { status: 500 });
   }
+}
+
+// Simple mime-type guesser as fallback when HeadObject fails
+function guessMimeType(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase();
+  const map: Record<string, string> = {
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
+    webp: "image/webp", svg: "image/svg+xml", avif: "image/avif",
+    mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", mkv: "video/x-matroska",
+    mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", flac: "audio/flac",
+    pdf: "application/pdf", zip: "application/zip", "7z": "application/x-7z-compressed",
+    rar: "application/vnd.rar", tar: "application/x-tar", gz: "application/gzip",
+    doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    txt: "text/plain", html: "text/html", css: "text/css", js: "text/javascript",
+    json: "application/json", xml: "application/xml",
+  };
+  return map[ext ?? ""] ?? "application/octet-stream";
 }
