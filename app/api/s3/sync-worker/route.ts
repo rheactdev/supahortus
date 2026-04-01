@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ListObjectsV2Command, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { Receiver } from "@upstash/qstash";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -122,89 +122,97 @@ export async function POST(request: Request) {
         }
       }
 
-      for (const key of missingKeys) {
-        const isFolder = key.endsWith("/");
-        const parts = key.split("/").filter(Boolean);
-        const name = parts[parts.length - (isFolder ? 1 : 0)] || key;
+      // Separate folders and files
+      const missingFolderKeys = missingKeys.filter((k) => k.endsWith("/"));
+      const missingFileKeys = missingKeys.filter((k) => !k.endsWith("/"));
 
-        // Find parent: walk up the path to find an existing folder
+      // --- Phase A: create folders one-by-one (need IDs for parent_id refs) ---
+      for (const key of missingFolderKeys) {
+        const parts = key.split("/").filter(Boolean);
+        const name = parts[parts.length - 1] || key;
+
         let parentId: string | null = null;
         if (parts.length > 1) {
-          // Build the parent folder's s3_key
-          const parentParts = isFolder ? parts.slice(0, -1) : parts.slice(0, -1);
-          const parentKey = parentParts.join("/") + "/";
+          const parentKey = parts.slice(0, -1).join("/") + "/";
 
-          // If parent folder doesn't exist in DB yet, create the chain
-          if (!folderIdMap.has(parentKey)) {
-            // Create ancestor folders as needed
-            for (let depth = 1; depth <= parentParts.length; depth++) {
-              const ancestorKey = parentParts.slice(0, depth).join("/") + "/";
-              if (folderIdMap.has(ancestorKey)) continue;
+          // Ensure ancestor chain exists
+          for (let depth = 1; depth < parts.length; depth++) {
+            const ancestorKey = parts.slice(0, depth).join("/") + "/";
+            if (folderIdMap.has(ancestorKey)) continue;
 
-              const ancestorName = parentParts[depth - 1];
-              const ancestorParentKey =
-                depth > 1 ? parentParts.slice(0, depth - 1).join("/") + "/" : null;
-              const ancestorParentId = ancestorParentKey
-                ? folderIdMap.get(ancestorParentKey) ?? null
-                : null;
+            const ancestorName = parts[depth - 1];
+            const ancestorParentKey =
+              depth > 1 ? parts.slice(0, depth - 1).join("/") + "/" : null;
+            const ancestorParentId = ancestorParentKey
+              ? folderIdMap.get(ancestorParentKey) ?? null
+              : null;
 
-              const { data: newFolder } = await supabaseAdmin
-                .from("items")
-                .insert({
-                  name: ancestorName,
-                  s3_key: ancestorKey,
-                  parent_id: ancestorParentId,
-                  owner_id: ownerId,
-                  status: "ready",
-                })
-                .select("id")
-                .single();
+            const { data: newFolder } = await supabaseAdmin
+              .from("items")
+              .insert({
+                name: ancestorName,
+                s3_key: ancestorKey,
+                parent_id: ancestorParentId,
+                owner_id: ownerId,
+                status: "ready",
+              })
+              .select("id")
+              .single();
 
-              if (newFolder) {
-                folderIdMap.set(ancestorKey, newFolder.id);
-                console.log(`[sync-worker] Created ancestor folder: ${ancestorKey}`);
-              }
-            }
+            if (newFolder) folderIdMap.set(ancestorKey, newFolder.id);
           }
 
           parentId = folderIdMap.get(parentKey) ?? null;
         }
 
-        // Detect mime type from extension for files
-        let mimeType: string | null = null;
-        let size: number | null = null;
-        if (!isFolder) {
-          size = bucketObjects.get(key) ?? 0;
-          // Try HeadObject for accurate content-type
-          try {
-            const head = await s3Client.send(
-              new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: key })
-            );
-            mimeType = head.ContentType ?? "application/octet-stream";
-            size = head.ContentLength ?? size;
-          } catch {
-            mimeType = guessMimeType(name);
-          }
-        }
+        if (!folderIdMap.has(key)) {
+          const { data: newFolder } = await supabaseAdmin
+            .from("items")
+            .insert({
+              name,
+              s3_key: key,
+              parent_id: parentId,
+              owner_id: ownerId,
+              status: "ready",
+            })
+            .select("id")
+            .single();
 
-        const { data: newItem } = await supabaseAdmin
-          .from("items")
-          .insert({
-            name,
-            s3_key: key,
-            parent_id: parentId,
-            size,
-            mime_type: mimeType,
-            owner_id: ownerId,
-            status: "ready",
-          })
-          .select("id")
-          .single();
-
-        if (newItem && isFolder) {
-          folderIdMap.set(key, newItem.id);
+          if (newFolder) folderIdMap.set(key, newFolder.id);
         }
       }
+
+      console.log(`[sync-worker] Created ${missingFolderKeys.length} folders`);
+
+      // --- Phase B: batch-insert files (no ID dependencies between them) ---
+      const fileRows = missingFileKeys.map((key) => {
+        const parts = key.split("/").filter(Boolean);
+        const name = parts[parts.length - 1] || key;
+        const parentKey =
+          parts.length > 1 ? parts.slice(0, -1).join("/") + "/" : null;
+        const parentId = parentKey ? folderIdMap.get(parentKey) ?? null : null;
+
+        return {
+          name,
+          s3_key: key,
+          parent_id: parentId,
+          size: bucketObjects.get(key) ?? 0,
+          mime_type: guessMimeType(name),
+          owner_id: ownerId,
+          status: "ready" as const,
+        };
+      });
+
+      // Insert in batches of 500
+      for (let i = 0; i < fileRows.length; i += 500) {
+        const batch = fileRows.slice(i, i + 500);
+        const { error: insErr } = await supabaseAdmin
+          .from("items")
+          .insert(batch);
+        if (insErr) throw insErr;
+      }
+
+      console.log(`[sync-worker] Created ${fileRows.length} files`);
     }
 
     // 5. Prune empty folders (leaves first, repeat until stable)

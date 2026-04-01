@@ -1,89 +1,123 @@
 -- ==============================================================================
--- 1. ENABLE ROW LEVEL SECURITY
+-- RLS POLICIES: Multi-tenant Gardens
 -- ==============================================================================
+
+-- 1. Enable RLS on all tables
+ALTER TABLE public.gardens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.garden_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.folder_shares ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shares ENABLE ROW LEVEL SECURITY;
 
 -- ==============================================================================
--- 2. THE RECURSIVE ACCESS FUNCTION
+-- 2. Helper: check if user is a member of a garden (with optional permission)
 -- ==============================================================================
--- This function walks up the folder tree to see if the user's email 
--- exists on any parent folder's share record.
-CREATE OR REPLACE FUNCTION public.has_shared_access(target_item_id uuid)
+CREATE OR REPLACE FUNCTION public.is_garden_member(
+  _garden_id uuid,
+  _permission text DEFAULT NULL
+)
 RETURNS boolean
 LANGUAGE sql
-SECURITY DEFINER SET search_path = public
+SECURITY DEFINER
+SET search_path = public
+STABLE
 AS $$
-  WITH RECURSIVE item_tree AS (
-    -- Base case: start with the requested item
-    SELECT id, parent_id FROM items WHERE id = target_item_id
-    UNION ALL
-    -- Recursive step: walk up the tree
-    SELECT i.id, i.parent_id FROM items i
-    JOIN item_tree it ON it.parent_id = i.id
-  )
-  -- Check if any item in the tree has a matching share for the current user's email
   SELECT EXISTS (
-    SELECT 1 FROM folder_shares fs
-    JOIN item_tree it ON fs.item_id = it.id
-    WHERE fs.user_email = auth.jwt() ->> 'email'
+    SELECT 1 FROM garden_members
+    WHERE garden_id = _garden_id
+      AND user_id = auth.uid()
+      AND (
+        _permission IS NULL
+        OR (_permission = 'upload' AND can_upload = true)
+        OR (_permission = 'delete' AND can_delete = true)
+        OR (_permission = 'owner' AND role = 'owner')
+      )
   );
 $$;
 
 -- ==============================================================================
--- 3. POLICIES FOR: public.items
+-- 3. POLICIES FOR: public.gardens
 -- ==============================================================================
--- Owners have full CRUD access to their own files and folders
-CREATE POLICY "Owners have full control over their items" 
-ON public.items 
-FOR ALL 
-USING (owner_id = auth.uid());
 
--- Recipients have Read-Only access to shared items and their descendants
-CREATE POLICY "Recipients can read shared folders and contents" 
-ON public.items 
-FOR SELECT 
-USING (has_shared_access(id));
+CREATE POLICY "Members can view gardens"
+  ON public.gardens FOR SELECT
+  USING (is_garden_member(id));
 
--- ==============================================================================
--- 4. POLICIES FOR: public.folder_shares
--- ==============================================================================
--- Owners of the underlying folder can create, update, and delete shares for it
-CREATE POLICY "Owners can manage folder shares" 
-ON public.folder_shares 
-FOR ALL 
-USING (
-  EXISTS (
-    SELECT 1 FROM public.items 
-    WHERE items.id = folder_shares.item_id 
-    AND items.owner_id = auth.uid()
-  )
-);
+CREATE POLICY "Owners can update gardens"
+  ON public.gardens FOR UPDATE
+  USING (is_garden_member(id, 'owner'));
 
--- Recipients can see the shares explicitly granted to them (for their dashboard)
-CREATE POLICY "Recipients can view their own folder shares" 
-ON public.folder_shares 
-FOR SELECT 
-USING (user_email = auth.jwt() ->> 'email');
+CREATE POLICY "Owners can delete gardens"
+  ON public.gardens FOR DELETE
+  USING (is_garden_member(id, 'owner'));
+
+CREATE POLICY "Authenticated users can create gardens"
+  ON public.gardens FOR INSERT
+  WITH CHECK (auth.uid() = created_by);
 
 -- ==============================================================================
--- 5. POLICIES FOR: public.shares (Public Short Links)
+-- 4. POLICIES FOR: public.garden_members
 -- ==============================================================================
--- Owners of the underlying item can create and revoke public links
-CREATE POLICY "Owners can manage file links" 
-ON public.shares 
-FOR ALL 
-USING (
-  EXISTS (
-    SELECT 1 FROM public.items 
-    WHERE items.id = shares.item_id 
-    AND items.owner_id = auth.uid()
-  )
-);
 
--- Anyone (including unauthenticated users) can resolve a valid, unexpired short link
-CREATE POLICY "Anyone can view valid share links" 
-ON public.shares 
-FOR SELECT 
-USING (expires_at > now());
+CREATE POLICY "Members can view garden members"
+  ON public.garden_members FOR SELECT
+  USING (is_garden_member(garden_id));
+
+CREATE POLICY "Owners can add garden members"
+  ON public.garden_members FOR INSERT
+  WITH CHECK (is_garden_member(garden_id, 'owner'));
+
+CREATE POLICY "Owners can update garden members"
+  ON public.garden_members FOR UPDATE
+  USING (is_garden_member(garden_id, 'owner'));
+
+CREATE POLICY "Owners can remove garden members"
+  ON public.garden_members FOR DELETE
+  USING (is_garden_member(garden_id, 'owner'));
+
+-- ==============================================================================
+-- 5. POLICIES FOR: public.items
+-- ==============================================================================
+
+CREATE POLICY "Members can view items"
+  ON public.items FOR SELECT
+  USING (is_garden_member(garden_id));
+
+CREATE POLICY "Uploaders can create items"
+  ON public.items FOR INSERT
+  WITH CHECK (is_garden_member(garden_id, 'upload'));
+
+CREATE POLICY "Uploaders can update items"
+  ON public.items FOR UPDATE
+  USING (is_garden_member(garden_id, 'upload'));
+
+CREATE POLICY "Deleters can delete items"
+  ON public.items FOR DELETE
+  USING (is_garden_member(garden_id, 'delete'));
+
+-- ==============================================================================
+-- 6. POLICIES FOR: public.shares
+-- ==============================================================================
+
+CREATE POLICY "Anyone can view valid share links"
+  ON public.shares FOR SELECT
+  USING (expires_at > now());
+
+CREATE POLICY "Uploaders can create share links"
+  ON public.shares FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.items
+      WHERE items.id = shares.item_id
+        AND is_garden_member(items.garden_id, 'upload')
+    )
+  );
+
+CREATE POLICY "Deleters can revoke share links"
+  ON public.shares FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.items
+      WHERE items.id = shares.item_id
+        AND is_garden_member(items.garden_id, 'delete')
+    )
+  );
