@@ -65,9 +65,11 @@ export function CreateFolderDialog({ parentId, onSuccess, isAdmin, breadcrumbs }
     }
   };
 
+  const showAddButton = isAdmin || (breadcrumbs && breadcrumbs.length > 0);
+
   return (
     <>
-    { (isAdmin || (breadcrumbs?.length && breadcrumbs.length>0)) && (
+    {showAddButton && (
       <button
         onClick={() => setIsOpen(true)}
         className="btn btn-soft"
@@ -75,8 +77,7 @@ export function CreateFolderDialog({ parentId, onSuccess, isAdmin, breadcrumbs }
         <Add size={18} />
         <span className="hidden sm:block">New Folder</span>
       </button>
-    )
-}
+    )}
 
       {isOpen && (
         <dialog className="modal modal-open bg-black/40 backdrop-blur-sm" open>
