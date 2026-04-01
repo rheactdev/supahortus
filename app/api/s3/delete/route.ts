@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
-import { checkAccess } from "@/lib/auth";
 
 export async function DELETE(request: Request) {
   const supabase = await createClient();
@@ -13,28 +12,59 @@ export async function DELETE(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const key = searchParams.get("key");
+  const id = searchParams.get("id");
 
-  if (!key) {
-    return NextResponse.json({ error: "Key query parameter is required" }, { status: 400 });
-  }
-
-  // Check folder access
-  const { allowed } = await checkAccess(supabase, authData.user, key);
-  if (!allowed) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!id) {
+    return NextResponse.json({ error: "id query parameter is required" }, { status: 400 });
   }
 
   try {
-    const command = new DeleteObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-    });
+    // Fetch item (RLS enforces ownership)
+    const { data: item, error: fetchError } = await supabase
+      .from("items")
+      .select("id, s3_key, size")
+      .eq("id", id)
+      .single();
 
-    await s3Client.send(command);
+    if (fetchError || !item) {
+      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    }
+
+    const isFolder = item.size === null;
+
+    if (isFolder) {
+      // Collect all descendant s3_keys for S3 cleanup
+      const { data: descendants } = await supabase
+        .from("items")
+        .select("s3_key")
+        .like("s3_key", `${item.s3_key}%`);
+
+      const keys = (descendants || []).map((d) => d.s3_key);
+      for (let i = 0; i < keys.length; i += 1000) {
+        const batch = keys.slice(i, i + 1000);
+        await s3Client.send(new DeleteObjectsCommand({
+          Bucket: BUCKET_NAME,
+          Delete: { Objects: batch.map((Key) => ({ Key })) },
+        }));
+      }
+    } else {
+      await s3Client.send(new DeleteObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: item.s3_key,
+      }));
+    }
+
+    // Delete from DB (CASCADE handles children for folders)
+    const { error: deleteError } = await supabase
+      .from("items")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) throw deleteError;
+
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Delete object error:", error);
-    return NextResponse.json({ error: "Failed to delete file" }, { status: 500 });
+    console.error("Delete error:", error);
+    return NextResponse.json({ error: "Failed to delete item" }, { status: 500 });
   }
 }

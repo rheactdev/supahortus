@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(
   request: Request,
@@ -12,24 +12,23 @@ export async function GET(
   const code = resolvedParams.code;
 
   if (!code) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('shares')
-    .select('file_key, expires_at')
-    .eq('short_code', code)
+  // Use admin client since share links are public (no user session required)
+  const { data, error } = await supabaseAdmin
+    .from("shares")
+    .select("expires_at, item:items(s3_key, name)")
+    .eq("short_code", code)
     .single();
 
-  if (error || !data) {
-    console.error("Share resolve error:", error);
+  if (error || !data?.item) {
     return new NextResponse(
       `<div style="font-family:sans-serif;text-align:center;padding:50px;">
         <h2>Link Not Found</h2>
         <p>This share link may have expired or is invalid.</p>
       </div>`,
-      { status: 404, headers: { 'content-type': 'text/html' } }
+      { status: 404, headers: { "content-type": "text/html" } }
     );
   }
 
@@ -39,21 +38,19 @@ export async function GET(
         <h2>Link Expired</h2>
         <p>This share link has expired.</p>
       </div>`,
-      { status: 410, headers: { 'content-type': 'text/html' } }
+      { status: 410, headers: { "content-type": "text/html" } }
     );
   }
 
   try {
-    const fileName = data.file_key.split("/").pop() || "download";
+    const item = data.item as unknown as { s3_key: string; name: string };
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
-      Key: data.file_key,
-      ResponseContentDisposition: `attachment; filename="${fileName}"`
+      Key: item.s3_key,
+      ResponseContentDisposition: `attachment; filename="${item.name}"`,
     });
 
-    // We can confidently sign this for 1 hour because the actual /s/ URL handles longevity up to 7 days in the DB
     const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-    
     return NextResponse.redirect(signedUrl);
   } catch (err) {
     console.error("Failed to generate presigned download:", err);

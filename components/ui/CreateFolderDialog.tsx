@@ -6,11 +6,11 @@ import { CloseButton } from "./closebutton";
 import { DaisyUIForm } from "./form";
 
 interface CreateFolderDialogProps {
-  prefix: string;
+  parentId: string | null;
   onSuccess: () => void;
 }
 
-export function CreateFolderDialog({ prefix, onSuccess }: CreateFolderDialogProps) {
+export function CreateFolderDialog({ parentId, onSuccess }: CreateFolderDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,7 +46,7 @@ export function CreateFolderDialog({ prefix, onSuccess }: CreateFolderDialogProp
       const res = await fetch("/api/s3/folder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prefix, folderName: cleanName }),
+        body: JSON.stringify({ name: cleanName, parentId }),
       });
 
       const data = await res.json();

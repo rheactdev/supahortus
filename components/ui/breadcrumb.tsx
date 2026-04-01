@@ -1,8 +1,13 @@
 import Link from "next/link";
 import { Folder, HardDrive } from "../icons/liquid-glass"
 
+interface BreadcrumbItem {
+    id: string;
+    name: string;
+}
+
 interface BreadcrumbProps {
-    breadcrumbs: string[];
+    breadcrumbs: BreadcrumbItem[];
 }
 
 export const Breadcrumb = ({ breadcrumbs }: BreadcrumbProps) => {
@@ -15,17 +20,14 @@ export const Breadcrumb = ({ breadcrumbs }: BreadcrumbProps) => {
                         <span>Bucket Root</span>
                     </Link>
                 </li>
-                {breadcrumbs.map((crumb, idx) => {
-                    const prefix = breadcrumbs.slice(0, idx + 1).join("/") + "/";
-                    return (
-                        <li key={idx}>
-                            <Link href={`/dashboard?prefix=${encodeURIComponent(prefix)}`} className="inline-flex items-center gap-2">
-                                <Folder />
-                                <span>{crumb}</span>
-                            </Link>
-                        </li>
-                    );
-                })}
+                {breadcrumbs.map((crumb) => (
+                    <li key={crumb.id}>
+                        <Link href={`/dashboard?folder=${crumb.id}`} className="inline-flex items-center gap-2">
+                            <Folder />
+                            <span>{crumb.name}</span>
+                        </Link>
+                    </li>
+                ))}
             </ul>
         </div>
     )

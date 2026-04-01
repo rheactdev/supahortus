@@ -16,14 +16,14 @@ const getFileIcon = (type: string, size = 64) => {
   return <FileIcon size={size} />;
 };
 
-export function UppyUploader({ prefix, onUploadSuccess }: { prefix: string, onUploadSuccess: () => void }) {
+export function UppyUploader({ parentId, onUploadSuccess }: { parentId: string | null, onUploadSuccess: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
-  const prefixRef = useRef(prefix);
+  const parentIdRef = useRef(parentId);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    prefixRef.current = prefix;
-  }, [prefix]);
+    parentIdRef.current = parentId;
+  }, [parentId]);
 
   const [uppy] = useState(() => new Uppy({
     id: "s3Uploader",
@@ -39,7 +39,8 @@ export function UppyUploader({ prefix, onUploadSuccess }: { prefix: string, onUp
         body: JSON.stringify({
           filename: file.name,
           contentType: file.type || "application/octet-stream",
-          prefix: prefixRef.current,
+          parentId: parentIdRef.current,
+          size: file.size,
         }),
       }).then((response) => response.json());
     },
@@ -96,7 +97,7 @@ export function UppyUploader({ prefix, onUploadSuccess }: { prefix: string, onUp
           <div className="modal-box w-full max-w-6xl h-[90vh]">
 
             <h3 className="font-bold text-lg flex items-center gap-2">
-              <Upload size={24} /> Upload to {prefix || "Bucket Root"}
+              <Upload size={24} /> Upload to {parentId ? "Folder" : "Bucket Root"}
             </h3>
 
             <div className="py-4">

@@ -10,25 +10,24 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { key } = await request.json();
-    if (!key) {
-      return NextResponse.json({ error: "Key is required" }, { status: 400 });
+    const { itemId } = await request.json();
+    if (!itemId) {
+      return NextResponse.json({ error: "itemId is required" }, { status: 400 });
     }
 
     const shortCode = crypto.randomUUID().substring(0, 8);
-    
-    const { error } = await supabase.from('shares').insert({
+
+    const { error } = await supabase.from("shares").insert({
       short_code: shortCode,
-      file_key: key,
-      user_id: authData.user.id
+      item_id: itemId,
+      user_id: authData.user.id,
     });
 
     if (error) throw error;
 
     const url = new URL(request.url);
     return NextResponse.json({ url: `${url.origin}/s/${shortCode}` });
-
-  } catch(err) {
+  } catch (err) {
     console.error("Failed to create share:", err);
     return NextResponse.json({ error: "Failed to create share" }, { status: 500 });
   }

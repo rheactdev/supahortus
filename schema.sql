@@ -5,10 +5,12 @@ CREATE TABLE public.items (
   name text NOT NULL,
   size bigint NULL,
   mime_type text NULL,
+  s3_key text NOT NULL,
   owner_id uuid NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   
   CONSTRAINT items_pkey PRIMARY KEY (id),
+  CONSTRAINT items_s3_key_unique UNIQUE (s3_key),
   CONSTRAINT items_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users (id) ON DELETE CASCADE,
   CONSTRAINT items_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES items (id) ON DELETE CASCADE,
   CONSTRAINT valid_item_state CHECK (

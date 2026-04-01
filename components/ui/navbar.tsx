@@ -9,7 +9,6 @@ export const Navbar = async () => {
         </div>
         <div className="flex-none">
             <ul className="menu menu-horizontal px-1">
-                <li><ThemeSwitcher /></li>
                 <li><Link href="/dashboard">Dashboard</Link></li>
                 <AuthButton />
             </ul>

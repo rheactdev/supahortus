@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import { ListObjectsV2Command } from "@aws-sdk/client-s3";
-import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
-import { checkAccess, getSharedPrefixes } from "@/lib/auth";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -13,49 +10,44 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  let prefix = searchParams.get("prefix") || "";
-
-  const isAdmin = authData.user.app_metadata?.role === "admin";
-
-  // Non-admin at root: return virtual folders from their shares
-  if (!isAdmin && prefix === "") {
-    const sharedPrefixes = await getSharedPrefixes(supabase, authData.user.email!);
-    // Return the shared prefixes as virtual folders, no files at root
-    return NextResponse.json({
-      folders: sharedPrefixes,
-      files: [],
-      currentPrefix: prefix,
-    });
-  }
-
-  // Non-admin navigating into a folder: verify they have access
-  if (!isAdmin) {
-    const { allowed } = await checkAccess(supabase, authData.user, prefix);
-    if (!allowed) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-  }
+  const parentId = searchParams.get("parent");
 
   try {
-    const command = new ListObjectsV2Command({
-      Bucket: BUCKET_NAME,
-      Prefix: prefix,
-      Delimiter: "/",
-    });
+    // RLS auto-filters: owners see their items, shared users see shared subtrees
+    let query = supabase
+      .from("items")
+      .select("id, parent_id, name, size, mime_type, s3_key, created_at")
+      .order("name");
 
-    const data = await s3Client.send(command);
+    if (parentId) {
+      query = query.eq("parent_id", parentId);
+    } else {
+      query = query.is("parent_id", null);
+    }
 
-    const folders = (data.CommonPrefixes || []).map((p) => p.Prefix);
-    const files = (data.Contents || []).map((file) => ({
-      key: file.Key,
-      size: file.Size,
-      lastModified: file.LastModified,
-      eTag: file.ETag,
-    })).filter((f) => f.key !== prefix);
+    const { data: items, error } = await query;
+    if (error) throw error;
 
-    return NextResponse.json({ folders, files, currentPrefix: prefix });
+    // Build breadcrumbs by walking up parent chain
+    const breadcrumbs: { id: string; name: string }[] = [];
+    if (parentId) {
+      let currentId: string | null = parentId;
+      while (currentId) {
+        const result = await supabase
+          .from("items")
+          .select("id, name, parent_id")
+          .eq("id", currentId)
+          .single();
+        const ancestor = result.data as { id: string; name: string; parent_id: string | null } | null;
+        if (!ancestor) break;
+        breadcrumbs.unshift({ id: ancestor.id, name: ancestor.name });
+        currentId = ancestor.parent_id;
+      }
+    }
+
+    return NextResponse.json({ items: items || [], breadcrumbs });
   } catch (error) {
     console.error("Listing error:", error);
-    return NextResponse.json({ error: "Failed to list objects" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to list items" }, { status: 500 });
   }
 }

@@ -3,7 +3,6 @@ import { GetObjectCommand, type GetObjectCommandInput } from "@aws-sdk/client-s3
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
-import { checkAccess } from "@/lib/auth";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -14,38 +13,37 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const key = searchParams.get("key");
+  const id = searchParams.get("id");
 
-  if (!key) {
-    return NextResponse.json({ error: "Key query parameter is required" }, { status: 400 });
-  }
-
-  // Check folder access
-  const { allowed } = await checkAccess(supabase, authData.user, key);
-  if (!allowed) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!id) {
+    return NextResponse.json({ error: "id query parameter is required" }, { status: 400 });
   }
 
   try {
-    // FIX: Use the native AWS type instead of Record<string, string>
+    // Look up s3_key from DB (RLS enforces access)
+    const { data: item, error: fetchError } = await supabase
+      .from("items")
+      .select("s3_key, name")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !item) {
+      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    }
+
     const commandConfig: GetObjectCommandInput = {
       Bucket: BUCKET_NAME,
-      Key: key,
+      Key: item.s3_key,
     };
 
     if (searchParams.get("download") === "true") {
-      commandConfig.ResponseContentDisposition = `attachment; filename="${key.split('/').pop()}"`;
+      commandConfig.ResponseContentDisposition = `attachment; filename="${item.name}"`;
     }
 
     const command = new GetObjectCommand(commandConfig);
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
 
-    const isShare = searchParams.get("share") === "true";
-    const expiresIn = isShare ? 604800 : 3600;
-
-    const url = await getSignedUrl(s3Client, command, { expiresIn });
-
-    const action = searchParams.get("action");
-    if (action === 'download') {
+    if (searchParams.get("action") === "download") {
       return NextResponse.redirect(url);
     }
 

@@ -1,24 +1,28 @@
 import React, { useState } from "react";
-import { FileIcon, Download, Trash, Share, MenuDots } from "@/components/icons/liquid-glass";
+import { FileIcon, Download, Trash, Share, MenuDots, DocumentIcon } from "@/components/icons/liquid-glass";
 
-type S3File = {
-  key: string;
-  size: number;
-  lastModified: string;
+type Item = {
+  id: string;
+  name: string;
+  size: number | null;
+  mime_type: string | null;
+  s3_key: string;
+  created_at: string;
 };
 
 interface FileCardProps {
-  file: S3File;
-  prefix: string;
+  item: Item;
   onRefresh: () => void;
 }
 
-export function FileCard({ file, onRefresh }: FileCardProps) {
+export function FileCard({ item, onRefresh }: FileCardProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [toast, setToast] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameName, setRenameName] = useState(item.name);
+  const [renameLoading, setRenameLoading] = useState(false);
 
-  const fileName = file.key.split("/").pop() || "";
-  const isImage = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(fileName);
+  const isImage = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(item.name);
 
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
@@ -28,14 +32,14 @@ export function FileCard({ file, onRefresh }: FileCardProps) {
   };
 
   const handleDownload = () => {
-    window.location.href = `/api/s3/download?action=download&download=true&key=${encodeURIComponent(file.key)}`;
+    window.location.href = `/api/s3/download?action=download&download=true&id=${encodeURIComponent(item.id)}`;
     setDropdownOpen(false);
   };
 
   const handleDelete = async () => {
-    if (window.confirm(`Are you sure you want to delete ${fileName}?`)) {
+    if (window.confirm(`Are you sure you want to delete ${item.name}?`)) {
       try {
-        await fetch(`/api/s3/delete?key=${encodeURIComponent(file.key)}`, { method: "DELETE" });
+        await fetch(`/api/s3/delete?id=${encodeURIComponent(item.id)}`, { method: "DELETE" });
         onRefresh();
       } catch (err) {
         console.error("Failed to delete", err);
@@ -49,7 +53,7 @@ export function FileCard({ file, onRefresh }: FileCardProps) {
       const res = await fetch(`/api/s3/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: file.key })
+        body: JSON.stringify({ itemId: item.id })
       });
       const data = await res.json();
       if (data.url) {
@@ -65,6 +69,27 @@ export function FileCard({ file, onRefresh }: FileCardProps) {
     setDropdownOpen(false);
   };
 
+  const handleRename = async () => {
+    if (!renameName.trim() || renameName.trim() === item.name) return;
+    setRenameLoading(true);
+    try {
+      const res = await fetch("/api/s3/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: item.id, newName: renameName.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRenameOpen(false);
+        onRefresh();
+      }
+    } catch (err) {
+      console.error("Failed to rename", err);
+    } finally {
+      setRenameLoading(false);
+    }
+  };
+
   return (
     <>
       <div className="card bg-base-100 hover:bg-base-200 border border-base-content/10 hover:border-primary/30 group overflow-visible relative h-full">
@@ -78,6 +103,7 @@ export function FileCard({ file, onRefresh }: FileCardProps) {
               </summary>
               <ul className="dropdown-content menu bg-base-100 rounded-box z-[20] w-48 p-2 shadow-2xl border border-base-content/10 mt-1">
                 <li><button onClick={handleShare}><Share size={16} className="text-info" /> Share Link</button></li>
+                <li><button onClick={() => { setRenameOpen(true); setRenameName(item.name); setDropdownOpen(false); }}><DocumentIcon size={16} className="text-warning" /> Rename</button></li>
                 <li><button onClick={handleDownload}><Download size={16} className="text-secondary" /> Download</button></li>
                 <div className="divider my-0"></div>
                 <li><button onClick={handleDelete} className="text-error hover:bg-error/10 hover:text-error"><Trash size={16} /> Delete</button></li>
@@ -89,8 +115,8 @@ export function FileCard({ file, onRefresh }: FileCardProps) {
           <div className="h-32 w-full bg-base-200/30 relative flex items-center justify-center border-b border-base-content/5 overflow-hidden group-hover:bg-base-200 rounded-t-[inherit]">
             {isImage ? (
               <img
-                src={`/api/s3/download?action=download&key=${encodeURIComponent(file.key)}`}
-                alt={fileName}
+                src={`/api/s3/download?action=download&id=${encodeURIComponent(item.id)}`}
+                alt={item.name}
                 className="w-full h-full object-cover transform opacity-100 hover:scale-105 transition-transform"
                 loading="lazy"
               />
@@ -103,8 +129,8 @@ export function FileCard({ file, onRefresh }: FileCardProps) {
 
           {/* Metadata Area */}
           <div className="p-4 flex flex-col gap-1 mt-auto group-hover:opacity-50 transition-opacity">
-            <span className="font-medium truncate text-sm" title={fileName}>{fileName}</span>
-            <span className="text-xs text-base-content/50">{formatSize(file.size)}</span>
+            <span className="font-medium truncate text-sm" title={item.name}>{item.name}</span>
+            <span className="text-xs text-base-content/50">{item.size !== null ? formatSize(item.size) : ""}</span>
           </div>
         </div>
       </div>
@@ -115,6 +141,35 @@ export function FileCard({ file, onRefresh }: FileCardProps) {
             <span>Link Copied to Clipboard!</span>
           </div>
         </div>
+      )}
+
+      {renameOpen && (
+        <dialog className="modal modal-open">
+          <div className="modal-box max-w-sm">
+            <h3 className="font-bold text-xl mb-4">Rename File</h3>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={renameName}
+              onChange={(e) => setRenameName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleRename()}
+              autoFocus
+            />
+            <div className="modal-action">
+              <button className="btn btn-ghost" onClick={() => setRenameOpen(false)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={handleRename}
+                disabled={!renameName.trim() || renameName.trim() === item.name || renameLoading}
+              >
+                {renameLoading ? <span className="loading loading-spinner loading-sm" /> : "Rename"}
+              </button>
+            </div>
+          </div>
+          <form method="dialog" className="modal-backdrop">
+            <button onClick={() => setRenameOpen(false)}>close</button>
+          </form>
+        </dialog>
       )}
     </>
   );
