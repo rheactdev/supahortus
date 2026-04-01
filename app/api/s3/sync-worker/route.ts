@@ -29,6 +29,19 @@ export async function POST(request: Request) {
   }
 
   try {
+    // 0. Clean up stale pending uploads (older than 1 hour)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count: staleCount } = await supabaseAdmin
+      .from("items")
+      .delete({ count: "exact" })
+      .eq("owner_id", ownerId)
+      .eq("status", "pending")
+      .lt("created_at", oneHourAgo);
+
+    if (staleCount && staleCount > 0) {
+      console.log(`[sync-worker] Cleaned up ${staleCount} stale pending items`);
+    }
+
     // 1. Collect every key currently in the bucket
     const bucketKeys = new Set<string>();
     let continuationToken: string | undefined;
@@ -53,11 +66,12 @@ export async function POST(request: Request) {
 
     console.log(`[sync-worker] Bucket has ${bucketKeys.size} keys`);
 
-    // 2. Get all items owned by this user
+    // 2. Get all ready items owned by this user
     const { data: items, error: fetchError } = await supabaseAdmin
       .from("items")
       .select("id, s3_key, size")
-      .eq("owner_id", ownerId);
+      .eq("owner_id", ownerId)
+      .eq("status", "ready");
 
     if (fetchError) throw fetchError;
 

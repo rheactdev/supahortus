@@ -37,6 +37,7 @@ export async function getItems(
     .from("items")
     .select("id, parent_id, name, size, mime_type, s3_key, created_at")
     .eq("owner_id", userId)
+    .eq("status", "ready")
     .order("name");
 
   if (parentId) {

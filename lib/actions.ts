@@ -5,7 +5,6 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import {
   DeleteObjectCommand,
-  DeleteObjectsCommand,
   CopyObjectCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
@@ -31,29 +30,19 @@ export async function deleteItem(
 
   const isFolder = item.size === null;
 
+  // Collect S3 keys before deleting from DB
+  let keysToDelete: string[];
   if (isFolder) {
-    // Collect all descendant s3_keys for S3 cleanup
     const { data: descendants } = await supabaseAdmin
       .from("items")
       .select("s3_key")
       .like("s3_key", `${item.s3_key}%`);
-
-    const keys = (descendants || []).map((d) => d.s3_key);
-    for (let i = 0; i < keys.length; i += 1000) {
-      const batch = keys.slice(i, i + 1000);
-      await s3Client.send(
-        new DeleteObjectsCommand({
-          Bucket: BUCKET_NAME,
-          Delete: { Objects: batch.map((Key) => ({ Key })) },
-        })
-      );
-    }
+    keysToDelete = (descendants || []).map((d) => d.s3_key);
   } else {
-    await s3Client.send(
-      new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: item.s3_key })
-    );
+    keysToDelete = [item.s3_key];
   }
 
+  // Delete from DB first (instant — CASCADE handles children)
   const { error: deleteError } = await supabaseAdmin
     .from("items")
     .delete()
@@ -61,8 +50,24 @@ export async function deleteItem(
 
   if (deleteError) throw deleteError;
 
-  // Invalidate folder listing cache
+  // Invalidate cache immediately so the UI updates
   updateTag(`items:${userId}:${parentId ?? "root"}`);
+
+  // Enqueue background S3 cleanup via QStash
+  if (keysToDelete.length > 0) {
+    const { Client } = await import("@upstash/qstash");
+    const qstash = new Client({
+      baseUrl: process.env.QSTASH_URL!,
+      token: process.env.QSTASH_TOKEN!,
+    });
+    const reqHeaders = await headers();
+    const origin = reqHeaders.get("x-forwarded-proto") + "://" + reqHeaders.get("host");
+    await qstash.publishJSON({
+      url: `${origin}/api/s3/delete-worker`,
+      body: { keys: keysToDelete },
+      retries: 3,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +176,7 @@ export async function createFolder(
     s3Key = `${parent.s3_key}${name}/`;
   }
 
-  // Insert folder into DB
+  // Insert folder into DB (folders are immediately ready — no upload step)
   const { data: folder, error: insertError } = await supabaseAdmin
     .from("items")
     .insert({
@@ -179,6 +184,7 @@ export async function createFolder(
       s3_key: s3Key,
       parent_id: parentId || null,
       owner_id: userId,
+      status: "ready",
     })
     .select("id, s3_key")
     .single();

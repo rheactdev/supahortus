@@ -57,27 +57,30 @@ export async function POST(request: Request) {
       return NextResponse.json({ done: true, moved: 0 });
     }
 
-    // Process batch: copy to new key, delete old key, update DB
-    for (const item of staleItems) {
+    // Process batch: copy to new key, then delete old key + update DB in parallel
+    await Promise.all(staleItems.map(async (item) => {
       const newKey = item.s3_key.replace(oldPrefix, newPrefix);
       const encodedKey = item.s3_key.split('/').map(encodeURIComponent).join('/');
 
+      // Copy must complete before we delete the old key
       await s3Client.send(new CopyObjectCommand({
         Bucket: BUCKET_NAME,
         CopySource: `${BUCKET_NAME}/${encodedKey}`,
         Key: newKey,
       }));
 
-      await s3Client.send(new DeleteObjectCommand({
-        Bucket: BUCKET_NAME,
-        Key: item.s3_key,
-      }));
-
-      await supabaseAdmin
-        .from("items")
-        .update({ s3_key: newKey })
-        .eq("id", item.id);
-    }
+      // Delete old S3 key + update DB row in parallel
+      await Promise.all([
+        s3Client.send(new DeleteObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: item.s3_key,
+        })),
+        supabaseAdmin
+          .from("items")
+          .update({ s3_key: newKey })
+          .eq("id", item.id),
+      ]);
+    }));
 
     // If there might be more, re-enqueue
     if (staleItems.length === BATCH_SIZE) {

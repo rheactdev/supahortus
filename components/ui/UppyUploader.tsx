@@ -17,10 +17,13 @@ const getFileIcon = (type: string, size = 64) => {
   return <FileIcon size={size} />;
 };
 
+const MULTIPART_THRESHOLD = 50 * 1024 * 1024; // 50 MB
+
 export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: string | null, userId: string, onUploadSuccess: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
   const parentIdRef = useRef(parentId);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const itemIdMap = useRef(new Map<string, string>());
 
   useEffect(() => {
     parentIdRef.current = parentId;
@@ -30,20 +33,73 @@ export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: 
     id: "s3Uploader",
     autoProceed: false,
   }).use(AwsS3, {
-    shouldUseMultipart: false,
-    getUploadParameters(file) {
-      return fetch("/api/s3/presign", {
+    shouldUseMultipart: (file) => (file.size ?? 0) > MULTIPART_THRESHOLD,
+
+    // --- Single-part upload (files <= 50 MB) ---
+    async getUploadParameters(file) {
+      const res = await fetch("/api/s3/presign", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           filename: file.name,
           contentType: file.type || "application/octet-stream",
           parentId: parentIdRef.current,
           size: file.size,
         }),
-      }).then((response) => response.json());
+      });
+      const data = await res.json();
+      itemIdMap.current.set(file.id, data.itemId);
+      return data;
+    },
+
+    // --- Multipart upload (files > 50 MB) ---
+    async createMultipartUpload(file) {
+      const res = await fetch("/api/s3/multipart/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type || "application/octet-stream",
+          parentId: parentIdRef.current,
+          size: file.size,
+        }),
+      });
+      const data = await res.json();
+      itemIdMap.current.set(file.id, data.itemId);
+      return { uploadId: data.uploadId, key: data.key };
+    },
+
+    async signPart(_file, { uploadId, key, partNumber }) {
+      const params = new URLSearchParams({
+        uploadId,
+        key,
+        partNumber: String(partNumber),
+      });
+      const res = await fetch(`/api/s3/multipart/sign-part?${params}`);
+      return await res.json();
+    },
+
+    async listParts(_file, { uploadId, key }) {
+      const params = new URLSearchParams({ uploadId: uploadId ?? "", key });
+      const res = await fetch(`/api/s3/multipart/list-parts?${params}`);
+      return await res.json();
+    },
+
+    async completeMultipartUpload(_file, { uploadId, key, parts }) {
+      await fetch("/api/s3/multipart/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uploadId, key, parts }),
+      });
+      return {};
+    },
+
+    async abortMultipartUpload(_file, { uploadId, key }) {
+      await fetch("/api/s3/multipart/abort", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uploadId, key }),
+      });
     },
   }).use(ThumbnailGenerator, {
     thumbnailWidth: 200,
@@ -58,7 +114,20 @@ export function UppyUploader({ parentId, userId, onUploadSuccess }: { parentId: 
   useEffect(() => {
     const handleComplete = async (result: any) => {
       if (result.successful.length > 0) {
-        // Invalidate the items cache so the server re-fetches on next render
+        // Confirm all successful uploads (sets status from 'pending' to 'ready')
+        await Promise.all(
+          result.successful.map(async (file: any) => {
+            const itemId = itemIdMap.current.get(file.id);
+            if (itemId) {
+              await fetch("/api/s3/confirm", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ itemId }),
+              });
+              itemIdMap.current.delete(file.id);
+            }
+          })
+        );
         await invalidateItemsCache(userId, parentIdRef.current);
         onUploadSuccess();
       }

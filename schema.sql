@@ -7,12 +7,15 @@ CREATE TABLE public.items (
   mime_type text NULL,
   s3_key text NOT NULL,
   owner_id uuid NOT NULL,
+  status text NOT NULL DEFAULT 'pending',
   created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
   
   CONSTRAINT items_pkey PRIMARY KEY (id),
   CONSTRAINT items_s3_key_unique UNIQUE (s3_key),
   CONSTRAINT items_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users (id) ON DELETE CASCADE,
   CONSTRAINT items_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES items (id) ON DELETE CASCADE,
+  CONSTRAINT items_status_check CHECK (status IN ('pending', 'ready')),
   CONSTRAINT valid_item_state CHECK (
     (
       (size IS NULL) AND (mime_type IS NULL)
@@ -58,3 +61,20 @@ CREATE INDEX IF NOT EXISTS idx_items_parent_id ON public.items USING btree (pare
 CREATE INDEX IF NOT EXISTS idx_items_owner_id ON public.items USING btree (owner_id) TABLESPACE pg_default;
 CREATE INDEX IF NOT EXISTS idx_folder_shares_item_id ON public.folder_shares USING btree (item_id) TABLESPACE pg_default;
 CREATE INDEX IF NOT EXISTS idx_shares_item_id ON public.shares USING btree (item_id) TABLESPACE pg_default;
+
+-- Partial index for efficient querying of ready items
+CREATE INDEX IF NOT EXISTS idx_items_ready ON public.items USING btree (owner_id, parent_id) TABLESPACE pg_default WHERE (status = 'ready');
+
+-- Auto-update updated_at on row changes
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER items_updated_at
+  BEFORE UPDATE ON public.items
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at();
