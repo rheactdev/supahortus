@@ -5,21 +5,13 @@ import Uppy, { Meta, UppyFile } from "@uppy/core";
 import { useUppyState } from "@uppy/react";
 import AwsS3 from "@uppy/aws-s3";
 import ThumbnailGenerator from "@uppy/thumbnail-generator";
-import { Upload, Trash, Checkmark, FileIcon, Add, Video, Music, PdfIcon, DocumentIcon } from "@/components/icons/liquid-glass";
+import { Upload } from "@/components/icons/liquid-glass";
 import { QueueUpload } from "./queueupload";
 import { invalidateGardenCache } from "@/lib/actions";
 
-const getFileIcon = (type: string, size = 64) => {
-  if (type.startsWith('video/')) return <Video size={size} />;
-  if (type.startsWith('audio/')) return <Music size={size} />;
-  if (type.includes('pdf')) return <PdfIcon size={size} />;
-  if (type.includes('document') || type.includes('text/')) return <DocumentIcon size={size} />;
-  return <FileIcon size={size} />;
-};
-
 const MULTIPART_THRESHOLD = 50 * 1024 * 1024; // 50 MB
 
-export function UppyUploader({ gardenId, parentId, userId, onUploadSuccess }: { gardenId: string, parentId: string | null, userId: string, onUploadSuccess: () => void }) {
+export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId: string, parentId: string | null, onUploadSuccess: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
   const parentIdRef = useRef(parentId);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,11 +104,11 @@ export function UppyUploader({ gardenId, parentId, userId, onUploadSuccess }: { 
   const fileArray: UppyFile<Meta, Record<string, never>>[] = Object.values(uppyFiles);
 
   useEffect(() => {
-    const handleComplete = async (result: any) => {
-      if (result.successful.length > 0) {
+    const handleComplete = async (result: { successful?: { id: string }[] }) => {
+      if (result.successful && result.successful.length > 0) {
         // Confirm all successful uploads (sets status from 'pending' to 'ready')
         await Promise.all(
-          result.successful.map(async (file: any) => {
+          result.successful.map(async (file: { id: string }) => {
             const itemId = itemIdMap.current.get(file.id);
             if (itemId) {
               await fetch("/api/storage/confirm", {
@@ -144,7 +136,7 @@ export function UppyUploader({ gardenId, parentId, userId, onUploadSuccess }: { 
     files.forEach(file => {
       try {
         uppy.addFile({ source: "local", name: file.name, type: file.type, data: file });
-      } catch (err) { /* ignore dupes */ }
+      } catch { /* ignore dupes */ }
     });
     e.target.value = "";
   };

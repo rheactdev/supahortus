@@ -1,6 +1,6 @@
 "use client";
 
-import { Moon, Sun, Palette } from "@/components/icons/liquid-glass";
+import { Moon, Sun } from "@/components/icons/liquid-glass";
 import { useTheme } from "./theme-provider";
 import { useEffect, useState } from "react";
 

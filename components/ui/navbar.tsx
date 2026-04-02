@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { AuthButton } from "../auth-button";
-import { ThemeSwitcher } from "../theme-switcher";
 
 export const Navbar = async () => {
     return <div className="navbar bg-base-300 shadow-sm px-4">

@@ -15,7 +15,7 @@ export const { POST } = serve<DeletePayload>(
     const { gardenId, itemId } = context.requestPayload;
 
     // Step 1: Fetch item and all descendant S3 keys
-    const { s3Keys, isFolder } = await context.run("fetch-keys", async () => {
+    const { s3Keys } = await context.run("fetch-keys", async () => {
       const { data: item } = await supabaseAdmin
         .from("items")
         .select("s3_key, type")

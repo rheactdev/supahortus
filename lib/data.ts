@@ -83,7 +83,7 @@ export async function getBreadcrumbs(
   let currentId: string | null = parentId;
 
   while (currentId) {
-    const { data } = await supabaseAdmin
+    const { data }: { data: { id: string; name: string; parent_id: string | null } | null } = await supabaseAdmin
       .from("items")
       .select("id, name, parent_id")
       .eq("id", currentId)

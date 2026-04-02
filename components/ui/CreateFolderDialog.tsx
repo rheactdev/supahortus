@@ -48,8 +48,8 @@ export function CreateFolderDialog({ gardenId, parentId, userId, onSuccess }: Cr
       await createFolder(cleanName, gardenId, userId, parentId);
       setIsOpen(false);
       onSuccess();
-    } catch (err: any) {
-      setError(err.message || "Failed to create folder");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create folder");
     } finally {
       setIsSubmitting(false);
     }

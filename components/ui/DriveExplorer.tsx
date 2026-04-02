@@ -36,7 +36,6 @@ export function DriveExplorer({
   userId,
   canUpload,
   canDelete,
-  role,
 }: DriveExplorerProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -71,8 +70,8 @@ export function DriveExplorer({
       setRenameModal(null);
       setRenameName("");
       refreshData();
-    } catch (err: any) {
-      showToast(err.message || "Failed to rename");
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Failed to rename");
     } finally {
       setRenameLoading(false);
     }
@@ -97,7 +96,6 @@ export function DriveExplorer({
               <UppyUploader
                 gardenId={gardenId}
                 parentId={folderId}
-                userId={userId}
                 onUploadSuccess={refreshData}
               />
             </>

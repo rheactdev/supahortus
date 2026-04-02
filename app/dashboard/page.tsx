@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getGardensForUser } from "@/lib/data";
 import Link from "next/link";
-import { Folder, Add } from "@/components/icons/liquid-glass";
+import { Folder } from "@/components/icons/liquid-glass";
 
 export default async function DashboardPage() {
   const supabase = await createClient();

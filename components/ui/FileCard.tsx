@@ -26,7 +26,6 @@ export const FileCard = memo(function FileCard({
   thumbnailUrl,
   gardenId,
   userId,
-  folderId,
   canUpload,
   canDelete,
   onRefresh,
