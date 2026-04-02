@@ -187,11 +187,11 @@ export async function getThumbnailUrls(
 }
 
 // ---------------------------------------------------------------------------
-// Helper: get garden members (for admin panel)
+// Helper: get garden members with emails (for admin panel)
 // ---------------------------------------------------------------------------
 export async function getGardenMembers(
   gardenId: string
-): Promise<(GardenMember & { email?: string })[]> {
+): Promise<(GardenMember & { email: string })[]> {
   "use cache";
   cacheLife("minutes");
   cacheTag(`garden-${gardenId}`);
@@ -201,7 +201,40 @@ export async function getGardenMembers(
     .select("garden_id, user_id, can_upload, can_delete, role")
     .eq("garden_id", gardenId);
 
-  return (data as GardenMember[]) || [];
+  if (!data || data.length === 0) return [];
+
+  // Resolve emails via admin API
+  const members = data as GardenMember[];
+  const enriched: (GardenMember & { email: string })[] = [];
+
+  for (const member of members) {
+    const { data: userData } = await supabaseAdmin.auth.admin.getUserById(
+      member.user_id
+    );
+    enriched.push({
+      ...member,
+      email: userData?.user?.email ?? "unknown",
+    });
+  }
+
+  return enriched;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: get garden details by id
+// ---------------------------------------------------------------------------
+export async function getGarden(gardenId: string): Promise<Garden | null> {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(`garden-${gardenId}`);
+
+  const { data } = await supabaseAdmin
+    .from("gardens")
+    .select("id, name, created_by, created_at")
+    .eq("id", gardenId)
+    .single();
+
+  return (data as Garden) || null;
 }
 
 // ---------------------------------------------------------------------------

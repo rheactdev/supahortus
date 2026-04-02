@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getGardensForUser } from "@/lib/data";
 import Link from "next/link";
 import { Folder } from "@/components/icons/liquid-glass";
+import { CreateGardenDialog } from "@/components/ui/CreateGardenDialog";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -21,6 +22,7 @@ export default async function DashboardPage() {
             Select a garden to browse files, or create a new one.
           </p>
         </div>
+        <CreateGardenDialog userId={userId} />
       </div>
 
       {gardens.length === 0 ? (

@@ -36,6 +36,7 @@ export function DriveExplorer({
   userId,
   canUpload,
   canDelete,
+  role,
 }: DriveExplorerProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -85,6 +86,15 @@ export function DriveExplorer({
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <Breadcrumb breadcrumbs={breadcrumbs} gardenId={gardenId} />
         <div className="flex gap-2 items-center">
+          {role === "owner" && (
+            <Link
+              href={`/dashboard/garden/${gardenId}/settings`}
+              className="btn btn-ghost btn-sm"
+              title="Garden Settings"
+            >
+              ⚙ Settings
+            </Link>
+          )}
           {canUpload && (
             <>
               <CreateFolderDialog
