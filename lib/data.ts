@@ -239,6 +239,23 @@ export async function getGarden(gardenId: string): Promise<Garden | null> {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: get garden details by slug
+// ---------------------------------------------------------------------------
+export async function getGardenBySlug(slug: string): Promise<Garden | null> {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(`garden-slug-${slug}`);
+
+  const { data } = await supabaseAdmin
+    .from("gardens")
+    .select("id, slug, name, created_by, created_at")
+    .eq("slug", slug)
+    .single();
+
+  return (data as Garden) || null;
+}
+
+// ---------------------------------------------------------------------------
 // Helper: build full s3_key from parent chain
 // ---------------------------------------------------------------------------
 export async function buildS3Key(

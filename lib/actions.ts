@@ -188,7 +188,7 @@ export async function addGardenMember(
     // Invite the user, they'll be added on first login
     const reqHeaders = await headers();
     await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${getOrigin(reqHeaders)}/api/auth/callback?next=/dashboard`,
+      redirectTo: `${getOrigin(reqHeaders)}/api/auth/callback?next=/my-gardens`,
     });
     throw new Error("User invited — they must accept the invite first");
   }

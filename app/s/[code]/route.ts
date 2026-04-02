@@ -12,7 +12,7 @@ export async function GET(
   const code = resolvedParams.code;
 
   if (!code) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL("/my-gardens", request.url));
   }
 
   // Use admin client since share links are public (no user session required)

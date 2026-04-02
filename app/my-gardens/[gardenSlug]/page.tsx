@@ -3,9 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import {
   getItems,
-  getBreadcrumbs,
   getThumbnailUrls,
   getGardenMembership,
+  getGardenBySlug,
 } from "@/lib/data";
 import dynamic from "next/dynamic";
 
@@ -22,13 +22,10 @@ const DriveExplorer = dynamic(
 
 export default async function GardenPage({
   params,
-  searchParams,
 }: {
-  params: Promise<{ gardenId: string }>;
-  searchParams: Promise<{ folder?: string }>;
+  params: Promise<{ gardenSlug: string }>;
 }) {
-  const { gardenId } = await params;
-  const { folder: folderId = null } = await searchParams;
+  const { gardenSlug } = await params;
 
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
@@ -37,15 +34,15 @@ export default async function GardenPage({
 
   const userId = data.claims.sub as string;
 
-  // Verify membership
-  const membership = await getGardenMembership(gardenId, userId);
-  if (!membership) return redirect("/dashboard");
+  const garden = await getGardenBySlug(gardenSlug);
+  if (!garden) return redirect("/my-gardens");
 
-  // Parallel data fetching
-  const [items, breadcrumbs] = await Promise.all([
-    getItems(gardenId, folderId),
-    getBreadcrumbs(folderId),
-  ]);
+  // Verify membership
+  const membership = await getGardenMembership(garden.id, userId);
+  if (!membership) return redirect("/my-gardens");
+
+  // Root folder — no parentId
+  const items = await getItems(garden.id, null);
 
   // Batch-generate thumbnail URLs for image files
   const imageItems = items.filter(
@@ -55,7 +52,7 @@ export default async function GardenPage({
   );
   const thumbnailUrls =
     imageItems.length > 0
-      ? await getThumbnailUrls(gardenId, imageItems.map((i) => i.id))
+      ? await getThumbnailUrls(garden.id, imageItems.map((i) => i.id))
       : {};
 
   return (
@@ -68,10 +65,11 @@ export default async function GardenPage({
     >
       <DriveExplorer
         items={items}
-        breadcrumbs={breadcrumbs}
+        breadcrumbs={[]}
         thumbnailUrls={thumbnailUrls}
-        folderId={folderId}
-        gardenId={gardenId}
+        folderId={null}
+        gardenId={garden.id}
+        gardenSlug={gardenSlug}
         userId={userId}
         canUpload={membership.can_upload}
         canDelete={membership.can_delete}

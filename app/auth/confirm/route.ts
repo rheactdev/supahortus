@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/dashboard";
+  const next = searchParams.get("next") ?? "/my-gardens";
 
   console.log(`[auth-confirm] Received: code=${!!code}, token_hash=${!!token_hash}, type=${type}, next=${next}`);
 

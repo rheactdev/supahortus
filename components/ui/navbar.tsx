@@ -8,7 +8,8 @@ export const Navbar = async () => {
         </div>
         <div className="flex-none">
             <ul className="menu menu-horizontal px-1">
-                <li><Link href="/dashboard">Dashboard</Link></li>
+                <li><Link href="/my-gardens">Gardens</Link></li>
+                <li><Link href="/admin">Admin</Link></li>
                 <AuthButton />
             </ul>
         </div>

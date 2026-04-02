@@ -13,9 +13,9 @@ export async function GET(request: NextRequest) {
 
     // SECURE: Prevent Open Redirect Vulnerabilities
     // Ensure the 'next' redirect is a relative path so attackers can't hijack your callback
-    let next = searchParams.get('next') ?? '/dashboard'
+    let next = searchParams.get('next') ?? '/gardens'
     if (!next.startsWith('/')) {
-        next = '/dashboard'
+        next = '/gardens'
     }
 
     console.log(`[auth-callback] Received: code=${!!code}, token_hash=${!!token_hash}, type=${type}, next=${next}`)

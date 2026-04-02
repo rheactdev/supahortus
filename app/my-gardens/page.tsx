@@ -36,7 +36,7 @@ export default async function DashboardPage() {
           {gardens.map((garden) => (
             <Link
               key={garden.id}
-              href={`/dashboard/garden/${garden.id}`}
+              href={`/my-gardens/${garden.slug}`}
               className="card bg-base-200/50 hover:bg-base-300/60 border border-base-content/5 hover:border-primary/30 group active:scale-95"
             >
               <div className="card-body flex flex-col justify-center items-center gap-3">

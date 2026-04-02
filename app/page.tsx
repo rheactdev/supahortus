@@ -6,7 +6,7 @@ export default async function Home() {
   const { data } = await supabase.auth.getClaims();
 
   if (data?.claims) {
-    redirect("/dashboard");
+    redirect("/my-gardens");
   } else {
     redirect("/auth/login");
   }

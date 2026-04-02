@@ -44,7 +44,7 @@ export function GardenSettings({ garden, userId }: GardenSettingsProps) {
     setDeleteLoading(true);
     try {
       await deleteGarden(garden.id, userId);
-      router.push("/dashboard");
+      router.push("/admin/gardens");
     } catch (err: unknown) {
       setDeleteLoading(false);
       alert(err instanceof Error ? err.message : "Failed to delete garden");

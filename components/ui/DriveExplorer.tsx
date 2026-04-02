@@ -21,6 +21,7 @@ interface DriveExplorerProps {
   thumbnailUrls: Record<string, string>;
   folderId: string | null;
   gardenId: string;
+  gardenSlug: string;
   userId: string;
   canUpload: boolean;
   canDelete: boolean;
@@ -33,6 +34,7 @@ export function DriveExplorer({
   thumbnailUrls,
   folderId,
   gardenId,
+  gardenSlug,
   userId,
   canUpload,
   canDelete,
@@ -84,11 +86,11 @@ export function DriveExplorer({
   return (
     <div className="flex flex-col gap-6 w-full">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <Breadcrumb breadcrumbs={breadcrumbs} gardenId={gardenId} />
+        <Breadcrumb breadcrumbs={breadcrumbs} gardenSlug={gardenSlug} />
         <div className="flex gap-2 items-center">
           {role === "owner" && (
             <Link
-              href={`/dashboard/garden/${gardenId}/settings`}
+              href={`/admin/gardens/${gardenSlug}`}
               className="btn btn-ghost btn-sm"
               title="Garden Settings"
             >
@@ -160,7 +162,7 @@ export function DriveExplorer({
                 )}
 
                 <Link
-                  href={`/dashboard/garden/${gardenId}?folder=${folder.id}`}
+                  href={`/my-gardens/${gardenSlug}/${folder.id}`}
                   className="card-body flex flex-col justify-center items-center gap-3"
                 >
                   <div className="p-3 bg-secondary/10 rounded-lg text-secondary group-hover:bg-secondary group-hover:text-secondary-content">

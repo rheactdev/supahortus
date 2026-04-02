@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import {
-  getGarden,
+  getGardenBySlug,
   getGardenMembership,
   getGardenMembers,
 } from "@/lib/data";
@@ -12,9 +12,9 @@ import Link from "next/link";
 export default async function SettingsPage({
   params,
 }: {
-  params: Promise<{ gardenId: string }>;
+  params: Promise<{ gardenSlug: string }>;
 }) {
-  const { gardenId } = await params;
+  const { gardenSlug } = await params;
 
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
@@ -23,23 +23,21 @@ export default async function SettingsPage({
 
   const userId = data.claims.sub as string;
 
-  const membership = await getGardenMembership(gardenId, userId);
+  const garden = await getGardenBySlug(gardenSlug);
+  if (!garden) return redirect("/admin/gardens");
+
+  const membership = await getGardenMembership(garden.id, userId);
   if (!membership || membership.role !== "owner") {
-    return redirect(`/dashboard/garden/${gardenId}`);
+    return redirect("/my-gardens");
   }
 
-  const [garden, members] = await Promise.all([
-    getGarden(gardenId),
-    getGardenMembers(gardenId),
-  ]);
-
-  if (!garden) return redirect("/dashboard");
+  const members = await getGardenMembers(garden.id);
 
   return (
     <div className="flex flex-col gap-8 w-full">
       <div className="flex items-center gap-4">
         <Link
-          href={`/dashboard/garden/${gardenId}`}
+          href="/admin/gardens"
           className="btn btn-ghost btn-sm"
         >
           ← Back
@@ -59,7 +57,7 @@ export default async function SettingsPage({
       <div className="divider" />
 
       <MemberManager
-        gardenId={gardenId}
+        gardenId={garden.id}
         members={members}
         userId={userId}
         gardenName={garden.name}
