@@ -47,19 +47,41 @@ function getOrigin(reqHeaders: Headers): string {
   return reqHeaders.get("x-forwarded-proto") + "://" + reqHeaders.get("host");
 }
 
+const SLUG_REGEX = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+async function getGardenSlug(gardenId: string): Promise<string> {
+  const { data, error } = await supabaseAdmin
+    .from("gardens")
+    .select("slug")
+    .eq("id", gardenId)
+    .single();
+  if (error || !data) throw new Error("Garden not found");
+  return data.slug;
+}
+
+function s3Root(slug: string): string {
+  return `hortus/${slug}/`;
+}
+
 // ---------------------------------------------------------------------------
 // Create a garden
 // ---------------------------------------------------------------------------
-export async function createGarden(name: string, userId: string) {
+export async function createGarden(name: string, slug: string, userId: string) {
   if (!name.trim()) throw new Error("Garden name is required");
+  if (!slug.trim()) throw new Error("Garden slug is required");
+  if (!SLUG_REGEX.test(slug)) throw new Error("Slug must be lowercase letters, numbers, and hyphens only");
+  if (slug.length < 2 || slug.length > 48) throw new Error("Slug must be 2-48 characters");
 
   const { data: garden, error } = await supabaseAdmin
     .from("gardens")
-    .insert({ name: name.trim(), created_by: userId })
-    .select("id")
+    .insert({ name: name.trim(), slug: slug.trim(), created_by: userId })
+    .select("id, slug")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    if (error.code === "23505") throw new Error("That slug is already taken");
+    throw error;
+  }
 
   // Add creator as owner with full permissions
   await supabaseAdmin.from("garden_members").insert({
@@ -74,13 +96,13 @@ export async function createGarden(name: string, userId: string) {
   await s3Client.send(
     new PutObjectCommand({
       Bucket: BUCKET_NAME,
-      Key: `${garden.id}/`,
+      Key: s3Root(garden.slug),
       Body: "",
     })
   );
 
   updateTag(`user-gardens-${userId}`);
-  return { id: garden.id };
+  return { id: garden.id, slug: garden.slug };
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +131,8 @@ export async function renameGarden(
 export async function deleteGarden(gardenId: string, userId: string) {
   await requireMembership(gardenId, userId, "owner");
 
+  const slug = await getGardenSlug(gardenId);
+
   // Collect all S3 keys before deleting from DB
   const { data: items } = await supabaseAdmin
     .from("items")
@@ -117,7 +141,7 @@ export async function deleteGarden(gardenId: string, userId: string) {
 
   const keysToDelete = (items || []).map((i) => i.s3_key);
   // Add the garden root marker
-  keysToDelete.push(`${gardenId}/`);
+  keysToDelete.push(s3Root(slug));
 
   // Delete garden from DB (CASCADE deletes items + members)
   const { error } = await supabaseAdmin
@@ -299,7 +323,8 @@ export async function renameItem(
       .single();
     newS3Key = `${parent?.s3_key || ""}${suffix}`;
   } else {
-    newS3Key = `${gardenId}/${suffix}`;
+    const slug = await getGardenSlug(gardenId);
+    newS3Key = `${s3Root(slug)}${suffix}`;
   }
 
   // Update this item's DB row immediately (fast for UI)
@@ -378,7 +403,8 @@ export async function moveItem(
     if (!parent) throw new Error("Destination folder not found");
     newParentS3Key = parent.s3_key;
   } else {
-    newParentS3Key = `${gardenId}/`;
+    const slug = await getGardenSlug(gardenId);
+    newParentS3Key = s3Root(slug);
   }
 
   // Trigger durable move workflow

@@ -96,6 +96,21 @@ export function GardenSettings({ garden, userId }: GardenSettingsProps) {
 
           <div className="form-control w-full max-w-md">
             <label className="label">
+              <span className="label-text font-medium">Slug</span>
+            </label>
+            <label className="input input-bordered flex items-center gap-1 font-mono text-sm">
+              <span className="text-base-content/40">hortus/</span>
+              <span>{garden.slug}</span>
+            </label>
+            <label className="label">
+              <span className="label-text-alt text-base-content/50">
+                Immutable — used as S3 prefix and URL identifier
+              </span>
+            </label>
+          </div>
+
+          <div className="form-control w-full max-w-md">
+            <label className="label">
               <span className="label-text font-medium">Garden ID</span>
             </label>
             <input

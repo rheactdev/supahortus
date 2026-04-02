@@ -46,6 +46,9 @@ export default async function DashboardPage() {
                 <span className="font-semibold truncate text-sm" title={garden.name}>
                   {garden.name}
                 </span>
+                <span className="text-xs text-base-content/40 font-mono truncate">
+                  {garden.slug}
+                </span>
                 <span className="badge badge-sm badge-ghost">
                   {garden.role}
                 </span>

@@ -8,11 +8,14 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 -- 1. Gardens: top-level tenant container
 CREATE TABLE public.gardens (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
+  slug text NOT NULL,
   name text NOT NULL,
   created_by uuid NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT gardens_pkey PRIMARY KEY (id),
+  CONSTRAINT gardens_slug_key UNIQUE (slug),
+  CONSTRAINT gardens_slug_format CHECK (slug ~ '^[a-z0-9][a-z0-9-]*[a-z0-9]$' OR slug ~ '^[a-z0-9]$'),
   CONSTRAINT gardens_created_by_fkey FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE CASCADE
 );
 

@@ -25,6 +25,7 @@ export type BreadcrumbItem = {
 
 export type Garden = {
   id: string;
+  slug: string;
   name: string;
   created_by: string;
   created_at: string;
@@ -109,7 +110,7 @@ export async function getGardensForUser(
 
   const { data } = await supabaseAdmin
     .from("garden_members")
-    .select("role, can_upload, can_delete, gardens(id, name, created_by, created_at)")
+    .select("role, can_upload, can_delete, gardens(id, slug, name, created_by, created_at)")
     .eq("user_id", userId);
 
   if (!data) return [];
@@ -230,7 +231,7 @@ export async function getGarden(gardenId: string): Promise<Garden | null> {
 
   const { data } = await supabaseAdmin
     .from("gardens")
-    .select("id, name, created_by, created_at")
+    .select("id, slug, name, created_by, created_at")
     .eq("id", gardenId)
     .single();
 
@@ -245,8 +246,17 @@ export async function buildS3Key(
   parentId: string | null,
   filename: string
 ): Promise<string> {
+  // Look up the garden slug for the S3 prefix
+  const { data: garden } = await supabaseAdmin
+    .from("gardens")
+    .select("slug")
+    .eq("id", gardenId)
+    .single();
+
+  if (!garden) throw new Error("Garden not found");
+
   if (!parentId) {
-    return `${gardenId}/${filename}`;
+    return `hortus/${garden.slug}/${filename}`;
   }
 
   const { data: parent } = await supabaseAdmin
