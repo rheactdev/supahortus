@@ -20,6 +20,7 @@ interface FileCardProps {
   canUpload: boolean;
   canDelete: boolean;
   onRefresh: () => void;
+  viewConfig: { cardSize: number; imageFit: "cover" | "contain"; aspectRatio: number };
 }
 
 export const FileCard = memo(function FileCard({
@@ -30,6 +31,7 @@ export const FileCard = memo(function FileCard({
   canUpload,
   canDelete,
   onRefresh,
+  viewConfig,
 }: FileCardProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [toast, setToast] = useState(false);
@@ -171,14 +173,17 @@ export const FileCard = memo(function FileCard({
           </div>
 
           {/* Visual Preview Area */}
-          <div className="h-32 w-full bg-base-200/30 relative flex items-center justify-center border-b border-base-content/5 overflow-hidden group-hover:bg-base-200 rounded-t-[inherit]">
+          <div 
+            className="w-full bg-base-200/30 relative flex items-center justify-center border-b border-base-content/5 overflow-hidden group-hover:bg-base-200 rounded-t-[inherit]"
+            style={{ aspectRatio: viewConfig.aspectRatio }}
+          >
             {isImage && thumbnailUrl ? (
               <Image
                 src={thumbnailUrl}
                 alt={item.name}
                 fill
                 sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 15vw"
-                className="object-cover transform opacity-100 hover:scale-105 transition-transform"
+                className={`object-${viewConfig.imageFit} transform opacity-100 hover:scale-105 transition-transform`}
               />
             ) : (
               <div className="p-3 bg-primary/10 rounded-lg text-primary">

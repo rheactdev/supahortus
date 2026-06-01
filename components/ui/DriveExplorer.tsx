@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useTransition } from "react";
+import React, { useState, useCallback, useTransition, useEffect } from "react";
 import { UppyUploader } from "./UppyUploader";
 import { CreateFolderDialog } from "./CreateFolderDialog";
 import {
@@ -48,6 +48,30 @@ export function DriveExplorer({
   const [renameName, setRenameName] = useState("");
   const [renameLoading, setRenameLoading] = useState(false);
 
+  const [viewConfig, setViewConfig] = useState<{cardSize: number; imageFit: "cover"|"contain"; aspectRatio: number}>({
+    cardSize: 200,
+    imageFit: "cover",
+    aspectRatio: 1,
+  });
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const key = `view-config-${folderId || gardenId}`;
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      try {
+        setViewConfig(JSON.parse(saved));
+      } catch (e) {}
+    }
+  }, [folderId, gardenId]);
+
+  const updateConfig = (updates: Partial<typeof viewConfig>) => {
+    const newConfig = { ...viewConfig, ...updates };
+    setViewConfig(newConfig);
+    localStorage.setItem(`view-config-${folderId || gardenId}`, JSON.stringify(newConfig));
+  };
+
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(""), 3000);
@@ -88,6 +112,32 @@ export function DriveExplorer({
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <Breadcrumb breadcrumbs={breadcrumbs} gardenSlug={gardenSlug} />
         <div className="flex gap-2 items-center">
+          {mounted && (
+            <div className="dropdown dropdown-end">
+              <div tabIndex={0} role="button" className="btn btn-ghost btn-sm" title="View Options">
+                ⚙️ View
+              </div>
+              <ul tabIndex={0} className="dropdown-content menu bg-base-100 rounded-box z-[20] w-64 p-4 shadow-2xl border border-base-content/10 mt-1 gap-2">
+                <li className="menu-title px-0 py-1">Card size</li>
+                <li>
+                  <input type="range" min="100" max="400" value={viewConfig.cardSize} className="range range-xs" onChange={(e) => updateConfig({ cardSize: Number(e.target.value) })} />
+                </li>
+                
+                <li className="menu-title px-0 py-1 mt-2">Image fit</li>
+                <li>
+                  <select className="select select-bordered select-sm w-full" value={viewConfig.imageFit} onChange={(e) => updateConfig({ imageFit: e.target.value as any })}>
+                    <option value="cover">Cover</option>
+                    <option value="contain">Contain</option>
+                  </select>
+                </li>
+                
+                <li className="menu-title px-0 py-1 mt-2">Image aspect ratio</li>
+                <li>
+                  <input type="range" min="0.5" max="3" step="0.1" value={viewConfig.aspectRatio} className="range range-xs" onChange={(e) => updateConfig({ aspectRatio: Number(e.target.value) })} />
+                </li>
+              </ul>
+            </div>
+          )}
           {role === "owner" && (
             <Link
               href={`/admin/gardens/${gardenSlug}`}
@@ -127,11 +177,12 @@ export function DriveExplorer({
             <p className="text-sm">Upload something to get started</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 box">
+          <div className="grid gap-4 box" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${viewConfig.cardSize}px, 1fr))` }}>
             {folders.map((folder) => (
               <div
                 key={folder.id}
-                className="card bg-base-200/50 hover:bg-base-300/60 border border-base-content/5 hover:border-primary/30 group active:scale-95 relative overflow-visible"
+                className="card bg-base-200/50 hover:bg-base-300/60 border border-base-content/5 hover:border-primary/30 group active:scale-95 relative overflow-visible flex flex-col items-center justify-center"
+                style={{ aspectRatio: viewConfig.aspectRatio }}
               >
                 {canUpload && (
                   <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -163,7 +214,7 @@ export function DriveExplorer({
 
                 <Link
                   href={`/my-gardens/${gardenSlug}/${folder.id}`}
-                  className="card-body flex flex-col justify-center items-center gap-3"
+                  className="card-body p-0 absolute inset-0 flex flex-col justify-center items-center gap-3 w-full h-full"
                 >
                   <div className="p-3 bg-secondary/10 rounded-lg text-secondary group-hover:bg-secondary group-hover:text-secondary-content">
                     <Folder size={32} className="opacity-80" />
@@ -189,6 +240,7 @@ export function DriveExplorer({
                 canUpload={canUpload}
                 canDelete={canDelete}
                 onRefresh={refreshData}
+                viewConfig={viewConfig}
               />
             ))}
           </div>
