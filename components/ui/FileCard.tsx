@@ -43,47 +43,24 @@ export const FileCard = memo(function FileCard({
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameName, setRenameName] = useState(item.name);
   const [renameLoading, setRenameLoading] = useState(false);
-  let curIcon = <FileIcon size={18} />;
-  let isPSD = false;
-  let isZip = false;
+  const ext = item.name.split(".").pop()?.toLowerCase() || "";
+  const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "svg", "avif", "afdesign", "afphoto", "afpub", "af", "psd"]);
+  
+  const isImage = item.mime_type?.startsWith("image/") || IMAGE_EXTENSIONS.has(ext);
 
-  const isImage =
-    /\.(jpg|jpeg|png|gif|webp|svg|avif|afdesign|afphoto|afpub|af)$/i.test(
-      item.name,
-    );
-  if (isImage) {
-    curIcon = (
-      <Image
-        src="/icons/lg-color/icons8-photo.svg"
-        width={18}
-        height={18}
-        alt="photo icon"
-      />
-    );
-  } else {
-    isZip = /\.(zip)$/i.test(item.name);
-    if (isZip) {
-      curIcon = (
-        <Image
-          src="/icons/lg-color/icons8-archive-folder.svg"
-          width={18}
-          height={18}
-          alt="archive folder"
-        />
-      );
-    } else {
-      isPSD = /\.(psd)$/i.test(item.name);
-      if (isPSD) {
-        curIcon = (
-          <Image
-            src="/icons/lg-color/icons8-adobe-photoshop.svg"
-            width={18}
-            height={18}
-            alt="psd icon"
-          />
-        );
-      }
-    }
+  // Easily add more extension -> icon mappings here
+  const EXTENSION_ICONS: Record<string, string> = {
+    zip: "/icons/lg-color/icons8-archive-folder.svg",
+    psd: "/icons/lg-color/icons8-adobe-photoshop.svg",
+    rpy: "/icons/lg-color/icons8-python.svg",
+    py: "/icons/lg-color/icons8-python.svg"
+  };
+
+  let curIcon = <FileIcon size={18} />;
+  if (EXTENSION_ICONS[ext]) {
+    curIcon = <Image src={EXTENSION_ICONS[ext]} width={18} height={18} alt={`${ext} icon`} />;
+  } else if (isImage) {
+    curIcon = <Image src="/icons/lg-color/icons8-full-image.svg" width={18} height={18} alt="photo icon" />;
   }
 
   const handleDownload = () => {
@@ -150,7 +127,7 @@ export const FileCard = memo(function FileCard({
   return (
     <>
       <div className="card bg-base-100 hover:bg-base-200 border border-base-content/10 hover:border-primary/30 group overflow-hidden relative h-full">
-        <div className="card-body p-0 flex flex-col h-full relative">
+        <div className="card-body p-0 flex flex-col h-full relative gap-0">
           {/* Metadata Top Bar */}
           <div className="p-2 pl-3 flex items-center gap-2 bg-base-200/50 border-b border-base-content/5 group-hover:bg-base-300/50 transition-colors">
             <div className="text-secondary shrink-0 flex items-center justify-center">
@@ -201,7 +178,7 @@ export const FileCard = memo(function FileCard({
                       <Download size={16} className="text-secondary" /> Download
                     </button>
                   </li>
-                  {(isImage || isPSD) && (
+                  {isImage && (
                     <li>
                       <button
                         onClick={handleRegenerateThumbnail}
@@ -240,7 +217,7 @@ export const FileCard = memo(function FileCard({
             className="w-full bg-base-200/20 relative flex items-center justify-center flex-1"
             style={{ aspectRatio: viewConfig.aspectRatio }}
           >
-            {(isImage || isPSD) && thumbnailUrl ? (
+            {isImage && thumbnailUrl ? (
               <Image
                 src={thumbnailUrl}
                 alt={item.name}
