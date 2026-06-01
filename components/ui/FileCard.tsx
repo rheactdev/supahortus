@@ -11,6 +11,14 @@ import {
 import { deleteItem, renameItem, createShareLink } from "@/lib/actions";
 import type { Item } from "@/lib/data";
 import { Dropdown, DropdownTrigger, DropdownContent } from "./DropdownMenu";
+import { ImageIcon } from "../icons/ImageIcon";
+import {
+  IconStyle,
+  EXTENSION_ICONS,
+  LIQUID_GLASS_COLOR,
+  ExtensionIconProps,
+  LIQUID_GLASS,
+} from "../icons/constants";
 
 interface FileCardProps {
   item: Item;
@@ -25,6 +33,13 @@ interface FileCardProps {
     cardSize: number;
     imageFit: "cover" | "contain";
     aspectRatio: number;
+  };
+}
+
+export interface ExtensionIcon {
+  [ext: string]: {
+    style: IconStyle;
+    icon: string;
   };
 }
 
@@ -44,24 +59,44 @@ export const FileCard = memo(function FileCard({
   const [renameName, setRenameName] = useState(item.name);
   const [renameLoading, setRenameLoading] = useState(false);
   const ext = item.name.split(".").pop()?.toLowerCase() || "";
-  const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "svg", "avif", "afdesign", "afphoto", "afpub", "af", "psd"]);
-  
-  const isImage = item.mime_type?.startsWith("image/") || IMAGE_EXTENSIONS.has(ext);
+  const IMAGE_EXTENSIONS = new Set([
+    "jpg",
+    "jpeg",
+    "png",
+    "gif",
+    "webp",
+    "svg",
+    "avif",
+    "afdesign",
+    "afphoto",
+    "afpub",
+    "af",
+    "psd",
+  ]);
+
+  const isImage =
+    item.mime_type?.startsWith("image/") || IMAGE_EXTENSIONS.has(ext);
 
   // Easily add more extension -> icon mappings here
-  const EXTENSION_ICONS: Record<string, string> = {
-    zip: "/icons/lg-color/icons8-archive-folder.svg",
-    psd: "/icons/lg-color/icons8-adobe-photoshop.svg",
-    rpy: "/icons/lg-color/icons8-python.svg",
-    py: "/icons/lg-color/icons8-python.svg"
-  };
+  // const EXTENSION_ICONS: Record<string, string> = {
+  //   zip: "/icons/lg-color/icons8-archive-folder.svg",
+  //   psd: "/icons/lg-color/icons8-adobe-photoshop.svg",
+  //   rpy: "/icons/lg-color/icons8-python.svg",
+  //   py: "/icons/lg-color/icons8-python.svg"
+  // };
 
-  let curIcon = <FileIcon size={18} />;
-  if (EXTENSION_ICONS[ext]) {
-    curIcon = <Image src={EXTENSION_ICONS[ext]} width={18} height={18} alt={`${ext} icon`} />;
-  } else if (isImage) {
-    curIcon = <Image src="/icons/lg-color/icons8-full-image.svg" width={18} height={18} alt="photo icon" />;
+  let curIcon: ExtensionIconProps = EXTENSION_ICONS[ext];
+  if (!EXTENSION_ICONS[ext] && isImage) {
+    curIcon = {
+      style: LIQUID_GLASS_COLOR,
+      icon: "icons8-full-image",
+    };
   }
+  // if (EXTENSION_ICONS[ext]) {
+  //   curIcon = <ImageIcon size={18} style={LIQUID_GLASS_COLOR} icon="icons8-full-image" />;
+  // } else if (isImage) {
+  //   curIcon = <Image src="/icons/lg-color/icons8-full-image.svg" width={18} height={18} alt="photo icon" />;
+  // }
 
   const handleDownload = () => {
     window.location.href = `/api/storage/download?action=download&download=true&id=${encodeURIComponent(item.id)}`;
@@ -131,7 +166,15 @@ export const FileCard = memo(function FileCard({
           {/* Metadata Top Bar */}
           <div className="p-2 pl-3 flex items-center gap-2 bg-base-200/50 border-b border-base-content/5 group-hover:bg-base-300/50 transition-colors">
             <div className="text-secondary shrink-0 flex items-center justify-center">
-              {curIcon}
+              {curIcon ? (
+                <ImageIcon
+                  size={18}
+                  style={curIcon.style}
+                  icon={curIcon.icon}
+                />
+              ) : (
+                <DocumentIcon size={18} />
+              )}
             </div>
 
             <span
@@ -184,12 +227,11 @@ export const FileCard = memo(function FileCard({
                         onClick={handleRegenerateThumbnail}
                         className="text-primary font-medium"
                       >
-                        <Image
-                          src="/icons/lg-color/icons8-restart.svg"
-                          width={16}
-                          height={16}
-                          alt="restart icon"
-                        />{" "}
+                        <ImageIcon
+                          size={16}
+                          style="lg-color"
+                          icon="icons8-restart"
+                        />
                         Regenerate Thumb
                       </button>
                     </li>
@@ -227,10 +269,19 @@ export const FileCard = memo(function FileCard({
               />
             ) : (
               <div className="p-3 bg-primary/10 rounded-lg text-primary">
-                <FileIcon
+                {curIcon ? (
+                  <ImageIcon
+                    size={32}
+                    style={curIcon.style}
+                    icon={curIcon.icon}
+                  />
+                ) : (
+                  <DocumentIcon size={32} />
+                )}
+                {/* <FileIcon
                   size={32}
                   className="group-hover:opacity-50 transition-opacity"
-                />
+                /> */}
               </div>
             )}
           </div>
