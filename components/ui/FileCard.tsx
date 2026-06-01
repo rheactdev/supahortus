@@ -1,4 +1,5 @@
 import React, { useState, memo } from "react";
+import Image from "next/image";
 import {
   FileIcon,
   Download,
@@ -172,12 +173,12 @@ export const FileCard = memo(function FileCard({
           {/* Visual Preview Area */}
           <div className="h-32 w-full bg-base-200/30 relative flex items-center justify-center border-b border-base-content/5 overflow-hidden group-hover:bg-base-200 rounded-t-[inherit]">
             {isImage && thumbnailUrl ? (
-              <img
+              <Image
                 src={thumbnailUrl}
                 alt={item.name}
-                className="w-full h-full object-cover transform opacity-100 hover:scale-105 transition-transform"
-                loading="lazy"
-                decoding="async"
+                fill
+                sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 15vw"
+                className="object-cover transform opacity-100 hover:scale-105 transition-transform"
               />
             ) : (
               <div className="p-3 bg-primary/10 rounded-lg text-primary">
