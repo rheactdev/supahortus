@@ -105,73 +105,89 @@ export const FileCard = memo(function FileCard({
 
   return (
     <>
-      <div className="card bg-base-100 hover:bg-base-200 border border-base-content/10 hover:border-primary/30 group overflow-visible relative h-full">
-        <div className="card-body p-0 flex flex-col h-full rounded-[inherit] relative">
-          {/* 3 dot menu overlay */}
-          <div
-            className={`absolute top-2 right-2 z-10 transition-opacity ${dropdownOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-          >
-            <Dropdown
-              className="dropdown-end"
-              open={dropdownOpen}
-              onOpenChange={setDropdownOpen}
+      <div className="card bg-base-100 hover:bg-base-200 border border-base-content/10 hover:border-primary/30 group overflow-hidden relative h-full">
+        <div className="card-body p-0 flex flex-col h-full relative">
+          
+          {/* Metadata Top Bar */}
+          <div className="p-2 pl-3 flex items-center gap-2 bg-base-200/50 border-b border-base-content/5 group-hover:bg-base-300/50 transition-colors">
+            <div className="text-secondary shrink-0 flex items-center justify-center">
+               {isImage ? (
+                 <Image src="/icons/lg-color/icons8-photo.svg" width={18} height={18} alt="image" />
+               ) : (
+                 <FileIcon size={18} />
+               )}
+            </div>
+            
+            <span className="font-medium truncate text-sm flex-1" title={item.name}>
+              {item.name}
+            </span>
+
+            {/* 3 dot menu overlay */}
+            <div
+              className={`shrink-0 transition-opacity ${dropdownOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
             >
-              <DropdownTrigger className="btn-sm btn-square btn-soft shadow-sm">
-                <MenuDots size={18} />
-              </DropdownTrigger>
-              <DropdownContent className="w-48 z-[20]">
-                <li>
-                  <button onClick={handleShare}>
-                    <Share size={16} className="text-info" /> Share Link
-                  </button>
-                </li>
-                {canUpload && (
+              <Dropdown
+                className="dropdown-end"
+                open={dropdownOpen}
+                onOpenChange={setDropdownOpen}
+              >
+                <DropdownTrigger className="btn-xs btn-ghost btn-square shadow-none">
+                  <MenuDots size={16} />
+                </DropdownTrigger>
+                <DropdownContent className="w-48 z-[20]">
                   <li>
-                    <button
-                      onClick={() => {
-                        setRenameOpen(true);
-                        setRenameName(item.name);
-                        setDropdownOpen(false);
-                      }}
-                    >
-                      <DocumentIcon size={16} className="text-warning" />{" "}
-                      Rename
+                    <button onClick={handleShare}>
+                      <Share size={16} className="text-info" /> Share Link
                     </button>
                   </li>
-                )}
-                <li>
-                  <button onClick={handleDownload}>
-                    <Download size={16} className="text-secondary" />{" "}
-                    Download
-                  </button>
-                </li>
-                {isImage && (
-                  <li>
-                    <button onClick={handleRegenerateThumbnail} className="text-primary font-medium">
-                      <Image src="/icons/lg-color/icons8-restart.svg" width={16} height={16} alt="restart icon" /> Regenerate Thumb
-                    </button>
-                  </li>
-                )}
-                {canDelete && (
-                  <>
-                    <div className="divider my-0" />
+                  {canUpload && (
                     <li>
                       <button
-                        onClick={handleDelete}
-                        className="text-error hover:bg-error/10 hover:text-error"
+                        onClick={() => {
+                          setRenameOpen(true);
+                          setRenameName(item.name);
+                          setDropdownOpen(false);
+                        }}
                       >
-                        <Trash size={16} /> Delete
+                        <DocumentIcon size={16} className="text-warning" />{" "}
+                        Rename
                       </button>
                     </li>
-                  </>
-                )}
-              </DropdownContent>
-            </Dropdown>
+                  )}
+                  <li>
+                    <button onClick={handleDownload}>
+                      <Download size={16} className="text-secondary" />{" "}
+                      Download
+                    </button>
+                  </li>
+                  {isImage && (
+                    <li>
+                      <button onClick={handleRegenerateThumbnail} className="text-primary font-medium">
+                        <Image src="/icons/lg-color/icons8-restart.svg" width={16} height={16} alt="restart icon" /> Regenerate Thumb
+                      </button>
+                    </li>
+                  )}
+                  {canDelete && (
+                    <>
+                      <div className="divider my-0" />
+                      <li>
+                        <button
+                          onClick={handleDelete}
+                          className="text-error hover:bg-error/10 hover:text-error"
+                        >
+                          <Trash size={16} /> Delete
+                        </button>
+                      </li>
+                    </>
+                  )}
+                </DropdownContent>
+              </Dropdown>
+            </div>
           </div>
 
           {/* Visual Preview Area */}
           <div 
-            className="w-full bg-base-200/30 relative flex items-center justify-center border-b border-base-content/5 overflow-hidden group-hover:bg-base-200 rounded-t-[inherit]"
+            className="w-full bg-base-200/20 relative flex items-center justify-center flex-1"
             style={{ aspectRatio: viewConfig.aspectRatio }}
           >
             {isImage && thumbnailUrl ? (
@@ -190,13 +206,6 @@ export const FileCard = memo(function FileCard({
                 />
               </div>
             )}
-          </div>
-
-          {/* Metadata Area */}
-          <div className="p-4 flex flex-col gap-1 mt-auto group-hover:opacity-50 transition-opacity">
-            <span className="font-medium truncate text-sm" title={item.name}>
-              {item.name}
-            </span>
           </div>
         </div>
       </div>
