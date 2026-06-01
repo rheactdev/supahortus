@@ -14,6 +14,7 @@ import { Breadcrumb } from "./breadcrumb";
 import { useRouter } from "next/navigation";
 import { renameItem } from "@/lib/actions";
 import type { Item, BreadcrumbItem } from "@/lib/data";
+import Image from "next/image"
 
 interface DriveExplorerProps {
   items: Item[];
@@ -114,8 +115,8 @@ export function DriveExplorer({
         <div className="flex gap-2 items-center">
           {mounted && (
             <details className="dropdown dropdown-end z-50">
-              <summary className="btn btn-ghost btn-sm" title="View Options">
-                ⚙️ View
+              <summary className="btn btn-soft btn-sm" title="View Options">
+                <Image src="/icons/icons8-eye.svg" width={16} height={16} alt="" />View
               </summary>
               <ul className="dropdown-content menu bg-base-100 rounded-box z-[100] w-64 p-4 shadow-2xl border border-base-content/10 mt-1 gap-2">
                 <li className="menu-title px-0 py-1">Card size</li>
@@ -138,15 +139,15 @@ export function DriveExplorer({
               </ul>
             </details>
           )}
-          {role === "owner" && (
+          {/* {role === "owner" && (
             <Link
               href={`/admin/gardens/${gardenSlug}`}
-              className="btn btn-ghost btn-sm"
+              className="btn btn-soft"
               title="Garden Settings"
             >
-              ⚙ Settings
+              <Image src="/icons/icons8-settings.svg" width={20} height={20} alt="settings gear" /> Settings
             </Link>
-          )}
+          )} */}
           {canUpload && (
             <>
               <CreateFolderDialog

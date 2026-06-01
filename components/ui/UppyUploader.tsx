@@ -149,10 +149,10 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
   return (
     <>
       <button
-        className="btn btn-primary"
+        className="btn btn-primary btn-sm"
         onClick={() => setIsOpen(true)}
       >
-        <Upload size={18} />
+        <Upload size={16} />
         <span className="hidden sm:block">Upload Files</span>
       </button>
 

@@ -59,9 +59,9 @@ export function CreateFolderDialog({ gardenId, parentId, userId, onSuccess }: Cr
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="btn btn-soft"
+        className="btn btn-soft btn-sm"
       >
-        <Add size={18} />
+        <Add size={16} />
         <span className="hidden sm:block">New Folder</span>
       </button>
 
