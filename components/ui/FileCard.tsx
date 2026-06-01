@@ -9,7 +9,6 @@ import {
 } from "@/components/icons/liquid-glass";
 import { deleteItem, renameItem, createShareLink } from "@/lib/actions";
 import type { Item } from "@/lib/data";
-import { RefreshCcw } from "lucide-react";
 
 interface FileCardProps {
   item: Item;
@@ -148,9 +147,8 @@ export const FileCard = memo(function FileCard({
                 </li>
                 {isImage && (
                   <li>
-                    <button onClick={handleRegenerateThumbnail}>
-                      <RefreshCcw size={16} className="text-primary" />{" "}
-                      Regenerate Thumb
+                    <button onClick={handleRegenerateThumbnail} className="text-primary font-medium">
+                      ↻ Regenerate Thumb
                     </button>
                   </li>
                 )}
