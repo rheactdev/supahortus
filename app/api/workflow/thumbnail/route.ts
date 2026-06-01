@@ -123,10 +123,15 @@ export const { POST } = serve<ThumbnailPayload>(
     });
 
     // Revalidate cache
-    const baseUrl = process.env.UPSTASH_WORKFLOW_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+    const baseUrl = process.env.UPSTASH_WORKFLOW_URL || 
+      (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"));
     await context.call("revalidate-cache", {
       url: `${baseUrl}/api/revalidate?tag=garden-${gardenId}`,
       method: "POST",
+      headers: process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
+        "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+      } : undefined,
     });
   },
   {

@@ -58,9 +58,14 @@ export async function POST(request: Request) {
 
     // Check if we need to generate a thumbnail
     if (/\.(psd|afdesign|afphoto|afpub|af)$/i.test(item.name)) {
-      const baseUrl = process.env.UPSTASH_WORKFLOW_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+      const baseUrl = process.env.UPSTASH_WORKFLOW_URL || 
+        (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"));
       await qstash.publishJSON({
         url: `${baseUrl}/api/workflow/thumbnail`,
+        headers: process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
+          "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+        } : undefined,
         body: {
           gardenId: item.garden_id,
           itemId: itemId,

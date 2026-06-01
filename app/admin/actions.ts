@@ -156,12 +156,17 @@ export async function generateMissingThumbnails() {
 
   const targets = items.filter(i => /\.(psd|afdesign|afphoto|afpub|af)$/i.test(i.name));
   
-  const baseUrl = process.env.UPSTASH_WORKFLOW_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const baseUrl = process.env.UPSTASH_WORKFLOW_URL || 
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"));
 
   let count = 0;
   for (const item of targets) {
     await qstash.publishJSON({
       url: `${baseUrl}/api/workflow/thumbnail`,
+      headers: process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
+        "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+      } : undefined,
       body: {
         gardenId: item.garden_id,
         itemId: item.id,
