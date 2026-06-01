@@ -9,6 +9,7 @@ import {
 } from "@/components/icons/liquid-glass";
 import { deleteItem, renameItem, createShareLink } from "@/lib/actions";
 import type { Item } from "@/lib/data";
+import { RefreshCcw } from "lucide-react";
 
 interface FileCardProps {
   item: Item;
@@ -81,6 +82,24 @@ export const FileCard = memo(function FileCard({
     }
   };
 
+  const handleRegenerateThumbnail = async () => {
+    try {
+      setToast(true);
+      await fetch('/api/storage/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gardenId,
+          newItems: [item]
+        })
+      });
+      setTimeout(() => setToast(false), 3000);
+    } catch (err) {
+      console.error("Failed to regenerate thumbnail", err);
+    }
+    setDropdownOpen(false);
+  };
+
   return (
     <>
       <div className="card bg-base-100 hover:bg-base-200 border border-base-content/10 hover:border-primary/30 group overflow-visible relative h-full">
@@ -127,6 +146,14 @@ export const FileCard = memo(function FileCard({
                     Download
                   </button>
                 </li>
+                {isImage && (
+                  <li>
+                    <button onClick={handleRegenerateThumbnail}>
+                      <RefreshCcw size={16} className="text-primary" />{" "}
+                      Regenerate Thumb
+                    </button>
+                  </li>
+                )}
                 {canDelete && (
                   <>
                     <div className="divider my-0" />
