@@ -10,6 +10,7 @@ import {
 } from "@/components/icons/liquid-glass";
 import { deleteItem, renameItem, createShareLink } from "@/lib/actions";
 import type { Item } from "@/lib/data";
+import { Dropdown, DropdownTrigger, DropdownContent } from "./DropdownMenu";
 
 interface FileCardProps {
   item: Item;
@@ -110,19 +111,15 @@ export const FileCard = memo(function FileCard({
           <div
             className={`absolute top-2 right-2 z-10 transition-opacity ${dropdownOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
           >
-            <details
-              className="dropdown dropdown-end"
+            <Dropdown
+              className="dropdown-end"
               open={dropdownOpen}
-              onToggle={(e) =>
-                setDropdownOpen(
-                  (e.target as HTMLDetailsElement).open
-                )
-              }
+              onOpenChange={setDropdownOpen}
             >
-              <summary className="btn btn-sm btn-square btn-soft shadow-sm">
+              <DropdownTrigger className="btn-sm btn-square btn-soft shadow-sm">
                 <MenuDots size={18} />
-              </summary>
-              <ul className="dropdown-content menu bg-base-100 rounded-box z-[20] w-48 p-2 shadow-2xl border border-base-content/10 mt-1">
+              </DropdownTrigger>
+              <DropdownContent className="w-48 z-[20]">
                 <li>
                   <button onClick={handleShare}>
                     <Share size={16} className="text-info" /> Share Link
@@ -151,7 +148,7 @@ export const FileCard = memo(function FileCard({
                 {isImage && (
                   <li>
                     <button onClick={handleRegenerateThumbnail} className="text-primary font-medium">
-                      ↻ Regenerate Thumb
+                      <Image src="/icons/lg-color/icons8-restart.svg" width={16} height={16} alt="restart icon" /> Regenerate Thumb
                     </button>
                   </li>
                 )}
@@ -168,8 +165,8 @@ export const FileCard = memo(function FileCard({
                     </li>
                   </>
                 )}
-              </ul>
-            </details>
+              </DropdownContent>
+            </Dropdown>
           </div>
 
           {/* Visual Preview Area */}
