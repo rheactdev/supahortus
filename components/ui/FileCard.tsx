@@ -21,7 +21,11 @@ interface FileCardProps {
   canUpload: boolean;
   canDelete: boolean;
   onRefresh: () => void;
-  viewConfig: { cardSize: number; imageFit: "cover" | "contain"; aspectRatio: number };
+  viewConfig: {
+    cardSize: number;
+    imageFit: "cover" | "contain";
+    aspectRatio: number;
+  };
 }
 
 export const FileCard = memo(function FileCard({
@@ -39,8 +43,48 @@ export const FileCard = memo(function FileCard({
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameName, setRenameName] = useState(item.name);
   const [renameLoading, setRenameLoading] = useState(false);
+  let curIcon = <FileIcon size={18} />;
+  let isPSD = false;
+  let isZip = false;
 
-  const isImage = /\.(jpg|jpeg|png|gif|webp|svg|avif|psd|afdesign|afphoto|afpub|af)$/i.test(item.name);
+  const isImage =
+    /\.(jpg|jpeg|png|gif|webp|svg|avif|afdesign|afphoto|afpub|af)$/i.test(
+      item.name,
+    );
+  if (isImage) {
+    curIcon = (
+      <Image
+        src="/icons/lg-color/icons8-photo.svg"
+        width={18}
+        height={18}
+        alt="photo icon"
+      />
+    );
+  } else {
+    isZip = /\.(zip)$/i.test(item.name);
+    if (isZip) {
+      curIcon = (
+        <Image
+          src="/icons/lg-color/icons8-archive-folder.svg"
+          width={18}
+          height={18}
+          alt="archive folder"
+        />
+      );
+    } else {
+      isPSD = /\.(psd)$/i.test(item.name);
+      if (isPSD) {
+        curIcon = (
+          <Image
+            src="/icons/lg-color/icons8-adobe-photoshop.svg"
+            width={18}
+            height={18}
+            alt="psd icon"
+          />
+        );
+      }
+    }
+  }
 
   const handleDownload = () => {
     window.location.href = `/api/storage/download?action=download&download=true&id=${encodeURIComponent(item.id)}`;
@@ -88,13 +132,13 @@ export const FileCard = memo(function FileCard({
   const handleRegenerateThumbnail = async () => {
     try {
       setToast(true);
-      await fetch('/api/storage/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      await fetch("/api/storage/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           itemId: item.id,
-          forceThumbnail: true
-        })
+          forceThumbnail: true,
+        }),
       });
       setTimeout(() => setToast(false), 3000);
     } catch (err) {
@@ -107,18 +151,16 @@ export const FileCard = memo(function FileCard({
     <>
       <div className="card bg-base-100 hover:bg-base-200 border border-base-content/10 hover:border-primary/30 group overflow-hidden relative h-full">
         <div className="card-body p-0 flex flex-col h-full relative">
-          
           {/* Metadata Top Bar */}
           <div className="p-2 pl-3 flex items-center gap-2 bg-base-200/50 border-b border-base-content/5 group-hover:bg-base-300/50 transition-colors">
             <div className="text-secondary shrink-0 flex items-center justify-center">
-               {isImage ? (
-                 <Image src="/icons/lg-color/icons8-photo.svg" width={18} height={18} alt="image" />
-               ) : (
-                 <FileIcon size={18} />
-               )}
+              {curIcon}
             </div>
-            
-            <span className="font-medium truncate text-sm flex-1" title={item.name}>
+
+            <span
+              className="font-medium truncate text-sm flex-1"
+              title={item.name}
+            >
               {item.name}
             </span>
 
@@ -156,14 +198,22 @@ export const FileCard = memo(function FileCard({
                   )}
                   <li>
                     <button onClick={handleDownload}>
-                      <Download size={16} className="text-secondary" />{" "}
-                      Download
+                      <Download size={16} className="text-secondary" /> Download
                     </button>
                   </li>
-                  {isImage && (
+                  {(isImage || isPSD) && (
                     <li>
-                      <button onClick={handleRegenerateThumbnail} className="text-primary font-medium">
-                        <Image src="/icons/lg-color/icons8-restart.svg" width={16} height={16} alt="restart icon" /> Regenerate Thumb
+                      <button
+                        onClick={handleRegenerateThumbnail}
+                        className="text-primary font-medium"
+                      >
+                        <Image
+                          src="/icons/lg-color/icons8-restart.svg"
+                          width={16}
+                          height={16}
+                          alt="restart icon"
+                        />{" "}
+                        Regenerate Thumb
                       </button>
                     </li>
                   )}
@@ -186,17 +236,17 @@ export const FileCard = memo(function FileCard({
           </div>
 
           {/* Visual Preview Area */}
-          <div 
+          <div
             className="w-full bg-base-200/20 relative flex items-center justify-center flex-1"
             style={{ aspectRatio: viewConfig.aspectRatio }}
           >
-            {isImage && thumbnailUrl ? (
+            {(isImage || isPSD) && thumbnailUrl ? (
               <Image
                 src={thumbnailUrl}
                 alt={item.name}
                 fill
                 sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 15vw"
-                className={`${viewConfig.imageFit === 'contain' ? 'object-contain' : 'object-cover'} transform opacity-100 hover:scale-105 transition-transform`}
+                className={`${viewConfig.imageFit === "contain" ? "object-contain" : "object-cover"} transform opacity-100 hover:scale-105 transition-transform`}
               />
             ) : (
               <div className="p-3 bg-primary/10 rounded-lg text-primary">
