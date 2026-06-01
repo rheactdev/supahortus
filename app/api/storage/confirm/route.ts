@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   const userId = authData.claims.sub as string;
 
   try {
-    const { itemId } = await request.json();
+    const { itemId, forceThumbnail } = await request.json();
 
     if (!itemId) {
       return NextResponse.json({ error: "itemId is required" }, { status: 400 });
@@ -45,16 +45,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (item.status === "ready") {
+    if (item.status === "ready" && !forceThumbnail) {
       return NextResponse.json({ confirmed: true });
     }
 
-    const { error: updateError } = await supabaseAdmin
-      .from("items")
-      .update({ status: "ready" })
-      .eq("id", itemId);
+    if (item.status !== "ready") {
+      const { error: updateError } = await supabaseAdmin
+        .from("items")
+        .update({ status: "ready" })
+        .eq("id", itemId);
 
-    if (updateError) throw updateError;
+      if (updateError) throw updateError;
+    }
 
     // Check if we need to generate a thumbnail
     if (/\.(psd|afdesign|afphoto|afpub|af)$/i.test(item.name)) {

@@ -88,8 +88,8 @@ export const FileCard = memo(function FileCard({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          gardenId,
-          newItems: [item]
+          itemId: item.id,
+          forceThumbnail: true
         })
       });
       setTimeout(() => setToast(false), 3000);
