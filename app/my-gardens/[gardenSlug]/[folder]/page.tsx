@@ -52,7 +52,7 @@ export default async function FolderPage({
   const imageItems = items.filter(
     (i) =>
       i.type === "file" &&
-      /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(i.name)
+      /\.(jpg|jpeg|png|gif|webp|svg|avif|psd|afdesign|afphoto|afpub|af)$/i.test(i.name)
   );
   const thumbnailUrls =
     imageItems.length > 0

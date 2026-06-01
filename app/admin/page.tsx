@@ -1,14 +1,20 @@
 import Link from "next/link";
 import { Folder } from "@/components/icons/liquid-glass";
+import { S3SyncButton } from "@/components/ui/S3SyncButton";
+import { GenerateThumbnailsButton } from "@/components/ui/GenerateThumbnailsButton";
 
 export default async function AdminDashboardPage() {
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Admin</h1>
-        <p className="text-base-content/60 mt-1">
-          Manage your gardens and users.
-        </p>
+      <div className="flex items-center gap-4 mb-8 border-b border-base-content/10 pb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-base-content">Admin Dashboard</h1>
+          <p className="text-base-content/60 mt-2">Manage your gardens and system settings.</p>
+        </div>
+        <div className="ml-auto flex flex-col gap-2 items-end">
+          <S3SyncButton />
+          <GenerateThumbnailsButton />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">

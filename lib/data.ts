@@ -14,6 +14,7 @@ export type Item = {
   name: string;
   type: "file" | "folder";
   s3_key: string;
+  thumbnail_key: string | null;
   mime_type: string | null;
   created_at: string;
 };
@@ -52,7 +53,7 @@ export async function getItems(
 
   let query = supabaseAdmin
     .from("items")
-    .select("id, garden_id, parent_id, name, type, s3_key, mime_type, created_at")
+    .select("id, garden_id, parent_id, name, type, s3_key, thumbnail_key, mime_type, created_at")
     .eq("garden_id", gardenId)
     .eq("status", "ready")
     .order("type", { ascending: true }) // folders first
@@ -162,7 +163,7 @@ export async function getThumbnailUrls(
 
   const { data: items } = await supabaseAdmin
     .from("items")
-    .select("id, s3_key, name")
+    .select("id, s3_key, thumbnail_key, name")
     .in("id", itemIds);
 
   if (!items || items.length === 0) return {};
@@ -171,9 +172,17 @@ export async function getThumbnailUrls(
   await Promise.all(
     items.map(async (item) => {
       try {
+        const isWebRenderable = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(item.name);
+        
+        // If it has no thumbnail_key and it's not a web-renderable image, skip it
+        // so it falls back to a generic file icon instead of a broken image.
+        if (!item.thumbnail_key && !isWebRenderable) {
+          return;
+        }
+
         const command = new GetObjectCommand({
           Bucket: BUCKET_NAME,
-          Key: item.s3_key,
+          Key: item.thumbnail_key || item.s3_key,
         });
         urlMap[item.id] = await getSignedUrl(s3Client, command, {
           expiresIn: 3600,

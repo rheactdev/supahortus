@@ -36,7 +36,7 @@ export const FileCard = memo(function FileCard({
   const [renameName, setRenameName] = useState(item.name);
   const [renameLoading, setRenameLoading] = useState(false);
 
-  const isImage = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(item.name);
+  const isImage = /\.(jpg|jpeg|png|gif|webp|svg|avif|psd|afdesign|afphoto|afpub|af)$/i.test(item.name);
 
   const handleDownload = () => {
     window.location.href = `/api/storage/download?action=download&download=true&id=${encodeURIComponent(item.id)}`;

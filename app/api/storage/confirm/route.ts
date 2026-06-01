@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { Client } from "@upstash/qstash";
+
+const qstash = new Client({ token: process.env.QSTASH_TOKEN || "" });
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -22,7 +25,7 @@ export async function POST(request: Request) {
     // Fetch item and verify membership
     const { data: item, error: fetchError } = await supabaseAdmin
       .from("items")
-      .select("garden_id, status")
+      .select("garden_id, status, name, s3_key")
       .eq("id", itemId)
       .single();
 
@@ -52,6 +55,20 @@ export async function POST(request: Request) {
       .eq("id", itemId);
 
     if (updateError) throw updateError;
+
+    // Check if we need to generate a thumbnail
+    if (/\.(psd|afdesign|afphoto|afpub|af)$/i.test(item.name)) {
+      const baseUrl = process.env.UPSTASH_WORKFLOW_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+      await qstash.publishJSON({
+        url: `${baseUrl}/api/workflow/thumbnail`,
+        body: {
+          gardenId: item.garden_id,
+          itemId: itemId,
+          s3Key: item.s3_key,
+          filename: item.name,
+        },
+      });
+    }
 
     return NextResponse.json({ confirmed: true });
   } catch (error) {
