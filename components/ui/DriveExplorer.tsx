@@ -50,7 +50,7 @@ export function DriveExplorer({
 
   const [viewConfig, setViewConfig] = useState<{cardSize: number; imageFit: "cover"|"contain"; aspectRatio: number}>({
     cardSize: 200,
-    imageFit: "cover",
+    imageFit: "contain",
     aspectRatio: 1,
   });
   const [mounted, setMounted] = useState(false);
@@ -113,11 +113,11 @@ export function DriveExplorer({
         <Breadcrumb breadcrumbs={breadcrumbs} gardenSlug={gardenSlug} />
         <div className="flex gap-2 items-center">
           {mounted && (
-            <div className="dropdown dropdown-end">
-              <div tabIndex={0} role="button" className="btn btn-ghost btn-sm" title="View Options">
+            <details className="dropdown dropdown-end z-50">
+              <summary className="btn btn-ghost btn-sm" title="View Options">
                 ⚙️ View
-              </div>
-              <ul tabIndex={0} className="dropdown-content menu bg-base-100 rounded-box z-[20] w-64 p-4 shadow-2xl border border-base-content/10 mt-1 gap-2">
+              </summary>
+              <ul className="dropdown-content menu bg-base-100 rounded-box z-[100] w-64 p-4 shadow-2xl border border-base-content/10 mt-1 gap-2">
                 <li className="menu-title px-0 py-1">Card size</li>
                 <li>
                   <input type="range" min="100" max="400" value={viewConfig.cardSize} className="range range-xs" onChange={(e) => updateConfig({ cardSize: Number(e.target.value) })} />
@@ -136,7 +136,7 @@ export function DriveExplorer({
                   <input type="range" min="0.5" max="3" step="0.1" value={viewConfig.aspectRatio} className="range range-xs" onChange={(e) => updateConfig({ aspectRatio: Number(e.target.value) })} />
                 </li>
               </ul>
-            </div>
+            </details>
           )}
           {role === "owner" && (
             <Link

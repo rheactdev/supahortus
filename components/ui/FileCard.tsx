@@ -183,7 +183,7 @@ export const FileCard = memo(function FileCard({
                 alt={item.name}
                 fill
                 sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 15vw"
-                className={`object-${viewConfig.imageFit} transform opacity-100 hover:scale-105 transition-transform`}
+                className={`${viewConfig.imageFit === 'contain' ? 'object-contain' : 'object-cover'} transform opacity-100 hover:scale-105 transition-transform`}
               />
             ) : (
               <div className="p-3 bg-primary/10 rounded-lg text-primary">
