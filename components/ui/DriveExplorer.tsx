@@ -177,72 +177,83 @@ export function DriveExplorer({
             <p className="text-sm">Upload something to get started</p>
           </div>
         ) : (
-          <div className="grid gap-4 box" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${viewConfig.cardSize}px, 1fr))` }}>
-            {folders.map((folder) => (
-              <div
-                key={folder.id}
-                className="card bg-base-200/50 hover:bg-base-300/60 border border-base-content/5 hover:border-primary/30 group active:scale-95 relative overflow-visible flex flex-col items-center justify-center"
-                style={{ aspectRatio: viewConfig.aspectRatio }}
-              >
-                {canUpload && (
-                  <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <details className="dropdown dropdown-end">
-                      <summary className="btn btn-sm btn-square btn-soft shadow-sm">
-                        <MenuDots size={18} />
-                      </summary>
-                      <ul className="dropdown-content menu bg-base-100 rounded-box z-[20] w-48 p-2 shadow-2xl border border-base-content/10 mt-1">
-                        <li>
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setRenameModal(folder);
-                              setRenameName(folder.name);
-                            }}
-                          >
-                            <DocumentIcon
-                              size={16}
-                              className="text-warning"
-                            />{" "}
-                            Rename
-                          </button>
-                        </li>
-                      </ul>
-                    </details>
-                  </div>
-                )}
+          <div className="flex flex-col gap-8 w-full">
+            {folders.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {/* <h3 className="text-sm font-semibold text-base-content/60 px-1">Folders</h3> */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 box">
+                  {folders.map((folder) => (
+                    <div
+                      key={folder.id}
+                      className="card bg-base-200/50 hover:bg-base-300/60 border border-base-content/5 hover:border-primary/30 group active:scale-95 relative overflow-visible"
+                    >
+                      {canUpload && (
+                        <div className="absolute top-1/2 -translate-y-1/2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <details className="dropdown dropdown-end">
+                            <summary className="btn btn-sm btn-ghost btn-square shadow-none">
+                              <MenuDots size={18} />
+                            </summary>
+                            <ul className="dropdown-content menu bg-base-100 rounded-box z-[20] w-48 p-2 shadow-2xl border border-base-content/10 mt-1">
+                              <li>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setRenameModal(folder);
+                                    setRenameName(folder.name);
+                                  }}
+                                >
+                                  <DocumentIcon
+                                    size={16}
+                                    className="text-warning"
+                                  />{" "}
+                                  Rename
+                                </button>
+                              </li>
+                            </ul>
+                          </details>
+                        </div>
+                      )}
 
-                <Link
-                  href={`/my-gardens/${gardenSlug}/${folder.id}`}
-                  className="card-body p-0 absolute inset-0 flex flex-col justify-center items-center gap-3 w-full h-full"
-                >
-                  <div className="p-3 bg-secondary/10 rounded-lg text-secondary group-hover:bg-secondary group-hover:text-secondary-content">
-                    <Folder size={32} className="opacity-80" />
-                  </div>
-                  <span
-                    className="font-semibold truncate text-sm"
-                    title={folder.name}
-                  >
-                    {folder.name}
-                  </span>
-                </Link>
+                      <Link
+                        href={`/my-gardens/${gardenSlug}/${folder.id}`}
+                        className="card-body p-4 flex flex-row items-center gap-3 w-full"
+                      >
+                        <Folder size={20} className="opacity-80 text-secondary" />
+                        <span
+                          className="font-medium truncate text-sm flex-1 pr-8"
+                          title={folder.name}
+                        >
+                          {folder.name}
+                        </span>
+                      </Link>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
+            )}
 
-            {files.map((file) => (
-              <FileCard
-                key={file.id}
-                item={file}
-                thumbnailUrl={thumbnailUrls[file.id]}
-                gardenId={gardenId}
-                userId={userId}
-                folderId={folderId}
-                canUpload={canUpload}
-                canDelete={canDelete}
-                onRefresh={refreshData}
-                viewConfig={viewConfig}
-              />
-            ))}
+            {files.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {/* <h3 className="text-sm font-semibold text-base-content/60 px-1">Files</h3> */}
+                <div className="grid gap-4 box" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${viewConfig.cardSize}px, 1fr))` }}>
+                  {files.map((file) => (
+                    <FileCard
+                      key={file.id}
+                      item={file}
+                      thumbnailUrl={thumbnailUrls[file.id]}
+                      gardenId={gardenId}
+                      userId={userId}
+                      folderId={folderId}
+                      canUpload={canUpload}
+                      canDelete={canDelete}
+                      onRefresh={refreshData}
+                      viewConfig={viewConfig}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
