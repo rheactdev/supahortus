@@ -4,7 +4,7 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import db from "@/db";
 
 type RenamePayload = {
   gardenId: string;
@@ -21,13 +21,9 @@ export const { POST } = serve<RenamePayload>(
 
     // Step 1: Fetch all descendant items with stale s3_keys
     const descendants = await context.run("fetch-keys", async () => {
-      const { data, error } = await supabaseAdmin
-        .from("items")
-        .select("id, s3_key")
-        .like("s3_key", `${oldPrefix}%`)
-        .neq("id", folderId);
+      const stmt = db.prepare(`SELECT id, s3_key FROM items WHERE s3_key LIKE ? AND id != ?`);
+      const data = stmt.all(`${oldPrefix}%`, folderId) as any[];
 
-      if (error) throw error;
       return data || [];
     });
 
@@ -72,10 +68,9 @@ export const { POST } = serve<RenamePayload>(
                   Key: item.s3_key,
                 })
               ),
-              supabaseAdmin
-                .from("items")
-                .update({ s3_key: newKey })
-                .eq("id", item.id),
+              (async () => {
+                db.prepare(`UPDATE items SET s3_key = ? WHERE id = ?`).run(newKey, item.id);
+              })(),
             ]);
           })
         );

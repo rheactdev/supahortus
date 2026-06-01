@@ -1,15 +1,16 @@
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { CreateGardenDialog } from "@/components/ui/CreateGardenDialog";
 import Link from "next/link";
 
 export default async function CreateNewGardenPage() {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  if (!data?.claims) return redirect("/auth/login");
+  if (!session?.user || session.user.role !== 'admin') return redirect("/auth/login");
 
-  const userId = data.claims.sub as string;
+  const userId = session.user.id;
 
   return (
     <div className="w-full h-full flex flex-col">

@@ -3,7 +3,7 @@ import {
   DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import db from "@/db";
 
 type DeletePayload = {
   gardenId: string;
@@ -16,21 +16,16 @@ export const { POST } = serve<DeletePayload>(
 
     // Step 1: Fetch item and all descendant S3 keys
     const { s3Keys } = await context.run("fetch-keys", async () => {
-      const { data: item } = await supabaseAdmin
-        .from("items")
-        .select("s3_key, type")
-        .eq("id", itemId)
-        .single();
+      const stmt = db.prepare(`SELECT s3_key, type FROM items WHERE id = ?`);
+      const item = stmt.get(itemId) as any;
 
       if (!item) throw new Error("Item not found");
 
       let keys: string[];
       if (item.type === "folder") {
-        const { data: descendants } = await supabaseAdmin
-          .from("items")
-          .select("s3_key")
-          .like("s3_key", `${item.s3_key}%`);
-        keys = (descendants || []).map((d) => d.s3_key);
+        const descStmt = db.prepare(`SELECT s3_key FROM items WHERE s3_key LIKE ?`);
+        const descendants = descStmt.all(`${item.s3_key}%`) as any[];
+        keys = descendants.map((d) => d.s3_key);
       } else {
         keys = [item.s3_key];
       }
@@ -40,11 +35,8 @@ export const { POST } = serve<DeletePayload>(
 
     // Step 2: Delete DB rows (CASCADE handles children for folders)
     await context.run("delete-db", async () => {
-      const { error } = await supabaseAdmin
-        .from("items")
-        .delete()
-        .eq("id", itemId);
-      if (error) throw error;
+      const delStmt = db.prepare(`DELETE FROM items WHERE id = ?`);
+      delStmt.run(itemId);
     });
 
     // Step 3: Delete S3 objects in batches of 1000

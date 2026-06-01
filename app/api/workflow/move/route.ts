@@ -4,7 +4,7 @@ import {
   DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import db from "@/db";
 
 type MovePayload = {
   gardenId: string;
@@ -24,13 +24,10 @@ export const { POST } = serve<MovePayload>(
     const { item, oldPrefix, newPrefix } = await context.run(
       "compute-prefixes",
       async () => {
-        const { data, error } = await supabaseAdmin
-          .from("items")
-          .select("id, name, s3_key, type, parent_id")
-          .eq("id", itemId)
-          .single();
+        const stmt = db.prepare(`SELECT id, name, s3_key, type, parent_id FROM items WHERE id = ?`);
+        const data = stmt.get(itemId) as any;
 
-        if (error || !data) throw new Error("Item not found");
+        if (!data) throw new Error("Item not found");
 
         const isFolder = data.type === "folder";
         const suffix = isFolder ? `${data.name}/` : data.name;
@@ -48,13 +45,9 @@ export const { POST } = serve<MovePayload>(
     const descendants = await context.run("fetch-keys", async () => {
       if (item.type !== "folder") return [];
 
-      const { data, error } = await supabaseAdmin
-        .from("items")
-        .select("id, s3_key")
-        .like("s3_key", `${oldPrefix}%`)
-        .neq("id", itemId);
+      const descStmt = db.prepare(`SELECT id, s3_key FROM items WHERE s3_key LIKE ? AND id != ?`);
+      const data = descStmt.all(`${oldPrefix}%`, itemId) as any[];
 
-      if (error) throw error;
       return data || [];
     });
 
@@ -140,18 +133,14 @@ export const { POST } = serve<MovePayload>(
     // Step 5: Update DB — item's parent_id, s3_key, and all descendants' s3_keys
     await context.run("update-db", async () => {
       // Update the moved item itself
-      await supabaseAdmin
-        .from("items")
-        .update({ parent_id: newParentId, s3_key: newPrefix })
-        .eq("id", itemId);
+      const updateStmt = db.prepare(`UPDATE items SET parent_id = ?, s3_key = ? WHERE id = ?`);
+      updateStmt.run(newParentId, newPrefix, itemId);
 
       // Update all descendants' s3_keys
+      const updateDescStmt = db.prepare(`UPDATE items SET s3_key = ? WHERE id = ?`);
       for (const desc of descendants) {
         const newKey = desc.s3_key.replace(oldPrefix, newPrefix);
-        await supabaseAdmin
-          .from("items")
-          .update({ s3_key: newKey })
-          .eq("id", desc.id);
+        updateDescStmt.run(newKey, desc.id);
       }
     });
 

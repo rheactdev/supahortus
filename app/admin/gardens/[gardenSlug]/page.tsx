@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   getGardenBySlug,
@@ -16,10 +17,10 @@ export default async function SettingsPage({
 }) {
   const { gardenSlug } = await params;
 
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  if (!data?.claims) return redirect("/auth/login");
+  if (!session?.user || session.user.role !== 'admin') return redirect("/auth/login");
 
   const userId = data.claims.sub as string;
 

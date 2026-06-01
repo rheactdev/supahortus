@@ -1,7 +1,7 @@
 "use client";
 
 
-import { createClient } from "@/lib/supabase/client";
+import { authClient } from "@/lib/auth-client";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -16,18 +16,15 @@ export function ForgotPasswordForm({
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    const supabase = createClient();
-    setIsLoading(true);
-    setError(null);
-
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await authClient.forgetPassword({
+        email,
         redirectTo: `${window.location.origin}/auth/update-password`,
       });
       if (error) throw error;
       setSuccess(true);
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+    } catch (error: any) {
+      setError(error?.message || "An error occurred");
     } finally {
       setIsLoading(false);
     }

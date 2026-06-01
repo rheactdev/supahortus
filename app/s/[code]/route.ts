@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import db from "@/db";
 
 export async function GET(
   request: Request,
@@ -16,13 +16,15 @@ export async function GET(
   }
 
   // Use admin client since share links are public (no user session required)
-  const { data, error } = await supabaseAdmin
-    .from("shares")
-    .select("expires_at, item:items(s3_key, name)")
-    .eq("short_code", code)
-    .single();
+  const stmt = db.prepare(`
+    SELECT s.expires_at, i.s3_key, i.name 
+    FROM shares s 
+    JOIN items i ON s.item_id = i.id 
+    WHERE s.short_code = ?
+  `);
+  const data = stmt.get(code) as any;
 
-  if (error || !data?.item) {
+  if (!data || !data.s3_key) {
     return new NextResponse(
       `<div style="font-family:sans-serif;text-align:center;padding:50px;">
         <h2>Link Not Found</h2>
@@ -43,11 +45,10 @@ export async function GET(
   }
 
   try {
-    const item = data.item as unknown as { s3_key: string; name: string };
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
-      Key: item.s3_key,
-      ResponseContentDisposition: `attachment; filename="${item.name}"`,
+      Key: data.s3_key,
+      ResponseContentDisposition: `attachment; filename="${data.name}"`,
     });
 
     const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });

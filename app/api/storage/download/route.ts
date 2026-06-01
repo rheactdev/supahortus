@@ -2,15 +2,19 @@ import { NextResponse } from "next/server";
 import { GetObjectCommand, type GetObjectCommandInput } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth";
+import db from "@/db";
+import { headers } from "next/headers";
 
 export async function GET(request: Request) {
-  const supabase = await createClient();
-  const { data: authData } = await supabase.auth.getClaims();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  if (!authData?.claims) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const userId = session.user.id;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
@@ -23,15 +27,19 @@ export async function GET(request: Request) {
   }
 
   try {
-    // RLS enforces access — only garden members can SELECT items
-    const { data: item, error: fetchError } = await supabase
-      .from("items")
-      .select("s3_key, name")
-      .eq("id", id)
-      .single();
+    // Verify item and membership manually since we don't have RLS
+    const stmt = db.prepare(`SELECT garden_id, s3_key, name FROM items WHERE id = ?`);
+    const item = stmt.get(id) as any;
 
-    if (fetchError || !item) {
+    if (!item) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    }
+
+    const memStmt = db.prepare(`SELECT role FROM garden_members WHERE garden_id = ? AND user_id = ?`);
+    const membership = memStmt.get(item.garden_id, userId);
+
+    if (!membership) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const commandConfig: GetObjectCommandInput = {

@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
-import { createClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { auth } from "@/lib/auth";
+import db from "@/db";
+import { headers } from "next/headers";
 
 export async function DELETE(request: Request) {
-  const supabase = await createClient();
-  const { data: authData } = await supabase.auth.getClaims();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  if (!authData?.claims) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -33,11 +34,8 @@ export async function DELETE(request: Request) {
 
     // Clean up the pending DB row
     if (itemId) {
-      await supabaseAdmin
-        .from("items")
-        .delete()
-        .eq("id", itemId)
-        .eq("status", "pending");
+      const delStmt = db.prepare(`DELETE FROM items WHERE id = ? AND status = 'pending'`);
+      delStmt.run(itemId);
     }
 
     return NextResponse.json({ aborted: true });

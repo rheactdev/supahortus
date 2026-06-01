@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import db from "@/db";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
@@ -15,7 +15,7 @@ export type Item = {
   type: "file" | "folder";
   s3_key: string;
   mime_type: string | null;
-  created_at: string;
+  created_at: number;
 };
 
 export type BreadcrumbItem = {
@@ -28,7 +28,7 @@ export type Garden = {
   slug: string;
   name: string;
   created_by: string;
-  created_at: string;
+  created_at: number;
 };
 
 export type GardenMember = {
@@ -50,22 +50,24 @@ export async function getItems(
   cacheLife("minutes");
   cacheTag(`garden-${gardenId}`);
 
-  let query = supabaseAdmin
-    .from("items")
-    .select("id, garden_id, parent_id, name, type, s3_key, mime_type, created_at")
-    .eq("garden_id", gardenId)
-    .eq("status", "ready")
-    .order("type", { ascending: true }) // folders first
-    .order("name");
+  let queryStr = `
+    SELECT id, garden_id, parent_id, name, type, s3_key, mime_type, created_at
+    FROM items
+    WHERE garden_id = ? AND status = 'ready'
+  `;
+  const params: any[] = [gardenId];
 
   if (parentId) {
-    query = query.eq("parent_id", parentId);
+    queryStr += ` AND parent_id = ?`;
+    params.push(parentId);
   } else {
-    query = query.is("parent_id", null);
+    queryStr += ` AND parent_id IS NULL`;
   }
 
-  const { data } = await query;
-  return (data as Item[]) || [];
+  queryStr += ` ORDER BY type ASC, name ASC`;
+
+  const stmt = db.prepare(queryStr);
+  return stmt.all(...params) as Item[];
 }
 
 // ---------------------------------------------------------------------------
@@ -83,13 +85,10 @@ export async function getBreadcrumbs(
   const crumbs: BreadcrumbItem[] = [];
   let currentId: string | null = parentId;
 
-  while (currentId) {
-    const { data }: { data: { id: string; name: string; parent_id: string | null } | null } = await supabaseAdmin
-      .from("items")
-      .select("id, name, parent_id")
-      .eq("id", currentId)
-      .single();
+  const stmt = db.prepare(`SELECT id, name, parent_id FROM items WHERE id = ?`);
 
+  while (currentId) {
+    const data = stmt.get(currentId) as { id: string; name: string; parent_id: string | null } | undefined;
     if (!data) break;
     crumbs.unshift({ id: data.id, name: data.name });
     currentId = data.parent_id;
@@ -108,22 +107,25 @@ export async function getGardensForUser(
   cacheLife("minutes");
   cacheTag(`user-gardens-${userId}`);
 
-  const { data } = await supabaseAdmin
-    .from("garden_members")
-    .select("role, can_upload, can_delete, gardens(id, slug, name, created_by, created_at)")
-    .eq("user_id", userId);
+  const stmt = db.prepare(`
+    SELECT gm.role, gm.can_upload, gm.can_delete, g.id, g.slug, g.name, g.created_by, g.created_at
+    FROM garden_members gm
+    JOIN gardens g ON gm.garden_id = g.id
+    WHERE gm.user_id = ?
+  `);
+  
+  const data = stmt.all(userId) as any[];
 
-  if (!data) return [];
-
-  return data.map((row) => {
-    const garden = row.gardens as unknown as Garden;
-    return {
-      ...garden,
-      role: row.role,
-      can_upload: row.can_upload,
-      can_delete: row.can_delete,
-    };
-  });
+  return data.map((row) => ({
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    created_by: row.created_by,
+    created_at: row.created_at,
+    role: row.role,
+    can_upload: Boolean(row.can_upload),
+    can_delete: Boolean(row.can_delete),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -137,14 +139,20 @@ export async function getGardenMembership(
   cacheLife("minutes");
   cacheTag(`garden-${gardenId}`);
 
-  const { data } = await supabaseAdmin
-    .from("garden_members")
-    .select("garden_id, user_id, can_upload, can_delete, role")
-    .eq("garden_id", gardenId)
-    .eq("user_id", userId)
-    .single();
+  const stmt = db.prepare(`
+    SELECT garden_id, user_id, can_upload, can_delete, role
+    FROM garden_members
+    WHERE garden_id = ? AND user_id = ?
+  `);
+  
+  const data = stmt.get(gardenId, userId) as any;
+  if (!data) return null;
 
-  return (data as GardenMember) || null;
+  return {
+    ...data,
+    can_upload: Boolean(data.can_upload),
+    can_delete: Boolean(data.can_delete),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -160,12 +168,16 @@ export async function getThumbnailUrls(
 
   if (itemIds.length === 0) return {};
 
-  const { data: items } = await supabaseAdmin
-    .from("items")
-    .select("id, s3_key, name")
-    .in("id", itemIds);
+  const placeholders = itemIds.map(() => '?').join(',');
+  const stmt = db.prepare(`
+    SELECT id, s3_key, name
+    FROM items
+    WHERE id IN (${placeholders})
+  `);
+  
+  const items = stmt.all(...itemIds) as any[];
 
-  if (!items || items.length === 0) return {};
+  if (items.length === 0) return {};
 
   const urlMap: Record<string, string> = {};
   await Promise.all(
@@ -197,28 +209,23 @@ export async function getGardenMembers(
   cacheLife("minutes");
   cacheTag(`garden-${gardenId}`);
 
-  const { data } = await supabaseAdmin
-    .from("garden_members")
-    .select("garden_id, user_id, can_upload, can_delete, role")
-    .eq("garden_id", gardenId);
+  const stmt = db.prepare(`
+    SELECT gm.garden_id, gm.user_id, gm.can_upload, gm.can_delete, gm.role, u.email
+    FROM garden_members gm
+    JOIN user u ON gm.user_id = u.id
+    WHERE gm.garden_id = ?
+  `);
+  
+  const data = stmt.all(gardenId) as any[];
 
-  if (!data || data.length === 0) return [];
-
-  // Resolve emails via admin API
-  const members = data as GardenMember[];
-  const enriched: (GardenMember & { email: string })[] = [];
-
-  for (const member of members) {
-    const { data: userData } = await supabaseAdmin.auth.admin.getUserById(
-      member.user_id
-    );
-    enriched.push({
-      ...member,
-      email: userData?.user?.email ?? "unknown",
-    });
-  }
-
-  return enriched;
+  return data.map((row) => ({
+    garden_id: row.garden_id,
+    user_id: row.user_id,
+    can_upload: Boolean(row.can_upload),
+    can_delete: Boolean(row.can_delete),
+    role: row.role,
+    email: row.email || "unknown",
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -229,13 +236,13 @@ export async function getGarden(gardenId: string): Promise<Garden | null> {
   cacheLife("minutes");
   cacheTag(`garden-${gardenId}`);
 
-  const { data } = await supabaseAdmin
-    .from("gardens")
-    .select("id, slug, name, created_by, created_at")
-    .eq("id", gardenId)
-    .single();
-
-  return (data as Garden) || null;
+  const stmt = db.prepare(`
+    SELECT id, slug, name, created_by, created_at
+    FROM gardens
+    WHERE id = ?
+  `);
+  
+  return (stmt.get(gardenId) as Garden) || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,13 +253,13 @@ export async function getGardenBySlug(slug: string): Promise<Garden | null> {
   cacheLife("minutes");
   cacheTag(`garden-slug-${slug}`);
 
-  const { data } = await supabaseAdmin
-    .from("gardens")
-    .select("id, slug, name, created_by, created_at")
-    .eq("slug", slug)
-    .single();
-
-  return (data as Garden) || null;
+  const stmt = db.prepare(`
+    SELECT id, slug, name, created_by, created_at
+    FROM gardens
+    WHERE slug = ?
+  `);
+  
+  return (stmt.get(slug) as Garden) || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,27 +270,18 @@ export async function buildS3Key(
   parentId: string | null,
   filename: string
 ): Promise<string> {
-  // Look up the garden slug for the S3 prefix
-  const { data: garden } = await supabaseAdmin
-    .from("gardens")
-    .select("slug")
-    .eq("id", gardenId)
-    .single();
+  const stmt = db.prepare(`SELECT slug FROM gardens WHERE id = ?`);
+  const garden = stmt.get(gardenId) as any;
 
   if (!garden) throw new Error("Garden not found");
 
   if (!parentId) {
-    return `hortus/${garden.slug}/${filename}`;
+    return \`hortus/\${garden.slug}/\${filename}\`;
   }
 
-  const { data: parent } = await supabaseAdmin
-    .from("items")
-    .select("s3_key")
-    .eq("id", parentId)
-    .single();
+  const parentStmt = db.prepare(`SELECT s3_key FROM items WHERE id = ?`);
+  const parent = parentStmt.get(parentId) as any;
 
   if (!parent) throw new Error("Parent folder not found");
-  return `${parent.s3_key}${filename}`;
+  return \`\${parent.s3_key}\${filename}\`;
 }
-
-

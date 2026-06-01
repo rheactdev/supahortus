@@ -1,7 +1,7 @@
 "use server";
 
 import { updateTag } from "next/cache";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import db from "@/db";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import {
   DeleteObjectCommand,
@@ -24,14 +24,14 @@ async function requireMembership(
   userId: string,
   permission?: "upload" | "delete" | "owner"
 ) {
-  const { data, error } = await supabaseAdmin
-    .from("garden_members")
-    .select("can_upload, can_delete, role")
-    .eq("garden_id", gardenId)
-    .eq("user_id", userId)
-    .single();
+  const stmt = db.prepare(`
+    SELECT can_upload, can_delete, role
+    FROM garden_members
+    WHERE garden_id = ? AND user_id = ?
+  `);
+  const data = stmt.get(gardenId, userId) as any;
 
-  if (error || !data) throw new Error("Not a member of this garden");
+  if (!data) throw new Error("Not a member of this garden");
 
   if (permission === "upload" && !data.can_upload)
     throw new Error("No upload permission");
@@ -50,17 +50,14 @@ function getOrigin(reqHeaders: Headers): string {
 const SLUG_REGEX = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
 async function getGardenSlug(gardenId: string): Promise<string> {
-  const { data, error } = await supabaseAdmin
-    .from("gardens")
-    .select("slug")
-    .eq("id", gardenId)
-    .single();
-  if (error || !data) throw new Error("Garden not found");
+  const stmt = db.prepare(`SELECT slug FROM gardens WHERE id = ?`);
+  const data = stmt.get(gardenId) as any;
+  if (!data) throw new Error("Garden not found");
   return data.slug;
 }
 
 function s3Root(slug: string): string {
-  return `hortus/${slug}/`;
+  return \`hortus/\${slug}/\`;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,37 +69,37 @@ export async function createGarden(name: string, slug: string, userId: string) {
   if (!SLUG_REGEX.test(slug)) throw new Error("Slug must be lowercase letters, numbers, and hyphens only");
   if (slug.length < 2 || slug.length > 48) throw new Error("Slug must be 2-48 characters");
 
-  const { data: garden, error } = await supabaseAdmin
-    .from("gardens")
-    .insert({ name: name.trim(), slug: slug.trim(), created_by: userId })
-    .select("id, slug")
-    .single();
+  const gardenId = crypto.randomUUID();
 
-  if (error) {
-    if (error.code === "23505") throw new Error("That slug is already taken");
+  try {
+    const insertGarden = db.prepare(`
+      INSERT INTO gardens (id, name, slug, created_by)
+      VALUES (?, ?, ?, ?)
+    `);
+    insertGarden.run(gardenId, name.trim(), slug.trim(), userId);
+  } catch (error: any) {
+    if (error.code === "SQLITE_CONSTRAINT_UNIQUE") throw new Error("That slug is already taken");
     throw error;
   }
 
   // Add creator as owner with full permissions
-  await supabaseAdmin.from("garden_members").insert({
-    garden_id: garden.id,
-    user_id: userId,
-    role: "owner",
-    can_upload: true,
-    can_delete: true,
-  });
+  const insertMember = db.prepare(`
+    INSERT INTO garden_members (garden_id, user_id, role, can_upload, can_delete)
+    VALUES (?, ?, 'owner', 1, 1)
+  `);
+  insertMember.run(gardenId, userId);
 
   // Create the garden root folder marker in S3
   await s3Client.send(
     new PutObjectCommand({
       Bucket: BUCKET_NAME,
-      Key: s3Root(garden.slug),
+      Key: s3Root(slug.trim()),
       Body: "",
     })
   );
 
-  updateTag(`user-gardens-${userId}`);
-  return { id: garden.id, slug: garden.slug };
+  updateTag(\`user-gardens-\${userId}\`);
+  return { id: gardenId, slug: slug.trim() };
 }
 
 // ---------------------------------------------------------------------------
@@ -115,14 +112,11 @@ export async function renameGarden(
 ) {
   await requireMembership(gardenId, userId, "owner");
 
-  const { error } = await supabaseAdmin
-    .from("gardens")
-    .update({ name: newName.trim() })
-    .eq("id", gardenId);
+  const stmt = db.prepare(\`UPDATE gardens SET name = ? WHERE id = ?\`);
+  stmt.run(newName.trim(), gardenId);
 
-  if (error) throw error;
-  updateTag(`garden-${gardenId}`);
-  updateTag(`user-gardens-${userId}`);
+  updateTag(\`garden-\${gardenId}\`);
+  updateTag(\`user-gardens-\${userId}\`);
 }
 
 // ---------------------------------------------------------------------------
@@ -134,31 +128,24 @@ export async function deleteGarden(gardenId: string, userId: string) {
   const slug = await getGardenSlug(gardenId);
 
   // Collect all S3 keys before deleting from DB
-  const { data: items } = await supabaseAdmin
-    .from("items")
-    .select("s3_key")
-    .eq("garden_id", gardenId);
+  const itemsStmt = db.prepare(\`SELECT s3_key FROM items WHERE garden_id = ?\`);
+  const items = itemsStmt.all(gardenId) as any[];
 
-  const keysToDelete = (items || []).map((i) => i.s3_key);
+  const keysToDelete = items.map((i) => i.s3_key);
   // Add the garden root marker
   keysToDelete.push(s3Root(slug));
 
   // Delete garden from DB (CASCADE deletes items + members)
-  const { error } = await supabaseAdmin
-    .from("gardens")
-    .delete()
-    .eq("id", gardenId);
+  const delStmt = db.prepare(\`DELETE FROM gardens WHERE id = ?\`);
+  delStmt.run(gardenId);
 
-  if (error) throw error;
+  updateTag(\`user-gardens-\${userId}\`);
 
-  updateTag(`user-gardens-${userId}`);
-
-  // Enqueue background S3 cleanup — garden rows are already deleted,
-  // so we pass pre-collected keys directly to the delete worker
+  // Enqueue background S3 cleanup
   if (keysToDelete.length > 0) {
     const reqHeaders = await headers();
     await qstashClient.publishJSON({
-      url: `${getOrigin(reqHeaders)}/api/storage/delete-worker`,
+      url: \`\${getOrigin(reqHeaders)}/api/storage/delete-worker\`,
       body: { keys: keysToDelete },
       retries: 3,
     });
@@ -176,38 +163,32 @@ export async function addGardenMember(
 ) {
   await requireMembership(gardenId, userId, "owner");
 
-  // Look up user by email
-  const { data: userData, error: lookupError } =
-    await supabaseAdmin.auth.admin.listUsers();
-
-  if (lookupError) throw lookupError;
-
-  const targetUser = userData.users.find((u) => u.email === email);
+  // Look up user by email from better-auth user table
+  const userStmt = db.prepare(\`SELECT id FROM user WHERE email = ?\`);
+  const targetUser = userStmt.get(email) as any;
 
   if (!targetUser) {
-    // Invite the user, they'll be added on first login
-    const reqHeaders = await headers();
-    await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${getOrigin(reqHeaders)}/api/auth/callback?next=/my-gardens`,
-    });
-    throw new Error("User invited — they must accept the invite first");
+    throw new Error("User not found — they must create an account first");
   }
 
-  const { error } = await supabaseAdmin.from("garden_members").insert({
-    garden_id: gardenId,
-    user_id: targetUser.id,
-    role: "member",
-    can_upload: permissions.can_upload ?? false,
-    can_delete: permissions.can_delete ?? false,
-  });
-
-  if (error) {
-    if (error.code === "23505") throw new Error("User is already a member");
+  try {
+    const insertStmt = db.prepare(\`
+      INSERT INTO garden_members (garden_id, user_id, role, can_upload, can_delete)
+      VALUES (?, ?, 'member', ?, ?)
+    \`);
+    insertStmt.run(
+      gardenId,
+      targetUser.id,
+      permissions.can_upload ? 1 : 0,
+      permissions.can_delete ? 1 : 0
+    );
+  } catch (error: any) {
+    if (error.code === "SQLITE_CONSTRAINT_PRIMARYKEY") throw new Error("User is already a member");
     throw error;
   }
 
-  updateTag(`garden-${gardenId}`);
-  updateTag(`user-gardens-${targetUser.id}`);
+  updateTag(\`garden-\${gardenId}\`);
+  updateTag(\`user-gardens-\${targetUser.id}\`);
 }
 
 // ---------------------------------------------------------------------------
@@ -221,14 +202,28 @@ export async function updateGardenMember(
 ) {
   await requireMembership(gardenId, userId, "owner");
 
-  const { error } = await supabaseAdmin
-    .from("garden_members")
-    .update(permissions)
-    .eq("garden_id", gardenId)
-    .eq("user_id", targetUserId);
+  let updates = [];
+  let params = [];
+  if (permissions.can_upload !== undefined) {
+    updates.push("can_upload = ?");
+    params.push(permissions.can_upload ? 1 : 0);
+  }
+  if (permissions.can_delete !== undefined) {
+    updates.push("can_delete = ?");
+    params.push(permissions.can_delete ? 1 : 0);
+  }
 
-  if (error) throw error;
-  updateTag(`garden-${gardenId}`);
+  if (updates.length > 0) {
+    params.push(gardenId, targetUserId);
+    const stmt = db.prepare(\`
+      UPDATE garden_members
+      SET \${updates.join(", ")}
+      WHERE garden_id = ? AND user_id = ?
+    \`);
+    stmt.run(...params);
+  }
+
+  updateTag(\`garden-\${gardenId}\`);
 }
 
 // ---------------------------------------------------------------------------
@@ -246,15 +241,11 @@ export async function removeGardenMember(
     throw new Error("Cannot remove yourself — transfer ownership or delete the garden");
   }
 
-  const { error } = await supabaseAdmin
-    .from("garden_members")
-    .delete()
-    .eq("garden_id", gardenId)
-    .eq("user_id", targetUserId);
+  const stmt = db.prepare(\`DELETE FROM garden_members WHERE garden_id = ? AND user_id = ?\`);
+  stmt.run(gardenId, targetUserId);
 
-  if (error) throw error;
-  updateTag(`garden-${gardenId}`);
-  updateTag(`user-gardens-${targetUserId}`);
+  updateTag(\`garden-\${gardenId}\`);
+  updateTag(\`user-gardens-\${targetUserId}\`);
 }
 
 // ---------------------------------------------------------------------------
@@ -267,26 +258,21 @@ export async function deleteItem(
 ) {
   await requireMembership(gardenId, userId, "delete");
 
-  // Verify item exists and belongs to this garden
-  const { data: item, error: fetchError } = await supabaseAdmin
-    .from("items")
-    .select("id, garden_id")
-    .eq("id", itemId)
-    .single();
+  const stmt = db.prepare(\`SELECT id, garden_id FROM items WHERE id = ?\`);
+  const item = stmt.get(itemId) as any;
 
-  if (fetchError || !item) throw new Error("Item not found");
+  if (!item) throw new Error("Item not found");
   if (item.garden_id !== gardenId) throw new Error("Item not in this garden");
 
-  // Trigger durable delete workflow (handles DB + S3 + cache revalidation)
+  // Trigger durable delete workflow
   const reqHeaders = await headers();
   await workflowClient.trigger({
-    url: `${getOrigin(reqHeaders)}/api/workflow/delete`,
+    url: \`\${getOrigin(reqHeaders)}/api/workflow/delete\`,
     body: { gardenId, itemId },
     retries: 3,
   });
 
-  // Optimistic: invalidate cache immediately so UI reflects the delete
-  updateTag(`garden-${gardenId}`);
+  updateTag(\`garden-\${gardenId}\`);
 }
 
 // ---------------------------------------------------------------------------
@@ -301,45 +287,34 @@ export async function renameItem(
   if (!newName || newName.includes("/")) throw new Error("Invalid name");
   await requireMembership(gardenId, userId, "upload");
 
-  const { data: item, error: fetchError } = await supabaseAdmin
-    .from("items")
-    .select("id, name, s3_key, type, parent_id, garden_id")
-    .eq("id", itemId)
-    .single();
+  const stmt = db.prepare(\`SELECT id, name, s3_key, type, parent_id, garden_id FROM items WHERE id = ?\`);
+  const item = stmt.get(itemId) as any;
 
-  if (fetchError || !item) throw new Error("Item not found");
+  if (!item) throw new Error("Item not found");
   if (item.garden_id !== gardenId) throw new Error("Item not in this garden");
 
   const isFolder = item.type === "folder";
 
   // Compute new s3_key
-  const suffix = isFolder ? `${newName}/` : newName;
+  const suffix = isFolder ? \`\${newName}/\` : newName;
   let newS3Key: string;
   if (item.parent_id) {
-    const { data: parent } = await supabaseAdmin
-      .from("items")
-      .select("s3_key")
-      .eq("id", item.parent_id)
-      .single();
-    newS3Key = `${parent?.s3_key || ""}${suffix}`;
+    const parentStmt = db.prepare(\`SELECT s3_key FROM items WHERE id = ?\`);
+    const parent = parentStmt.get(item.parent_id) as any;
+    newS3Key = \`\${parent?.s3_key || ""}\${suffix}\`;
   } else {
     const slug = await getGardenSlug(gardenId);
-    newS3Key = `${s3Root(slug)}${suffix}`;
+    newS3Key = \`\${s3Root(slug)}\${suffix}\`;
   }
 
-  // Update this item's DB row immediately (fast for UI)
-  const { error: updateError } = await supabaseAdmin
-    .from("items")
-    .update({ name: newName, s3_key: newS3Key })
-    .eq("id", itemId);
-
-  if (updateError) throw updateError;
+  // Update immediately
+  const updateStmt = db.prepare(\`UPDATE items SET name = ?, s3_key = ?, updated_at = unixepoch() WHERE id = ?\`);
+  updateStmt.run(newName, newS3Key, itemId);
 
   if (isFolder) {
-    // Trigger durable rename workflow for descendants
     const reqHeaders = await headers();
     await workflowClient.trigger({
-      url: `${getOrigin(reqHeaders)}/api/workflow/rename`,
+      url: \`\${getOrigin(reqHeaders)}/api/workflow/rename\`,
       body: {
         gardenId,
         folderId: itemId,
@@ -349,7 +324,6 @@ export async function renameItem(
       retries: 3,
     });
   } else {
-    // Single file: copy + delete in S3 immediately
     const encodedOldKey = item.s3_key
       .split("/")
       .map(encodeURIComponent)
@@ -357,7 +331,7 @@ export async function renameItem(
     await s3Client.send(
       new CopyObjectCommand({
         Bucket: BUCKET_NAME,
-        CopySource: `${BUCKET_NAME}/${encodedOldKey}`,
+        CopySource: \`\${BUCKET_NAME}/\${encodedOldKey}\`,
         Key: newS3Key,
       })
     );
@@ -366,11 +340,11 @@ export async function renameItem(
     );
   }
 
-  updateTag(`garden-${gardenId}`);
+  updateTag(\`garden-\${gardenId}\`);
 }
 
 // ---------------------------------------------------------------------------
-// Move an item to a different folder (triggers durable workflow)
+// Move an item to a different folder
 // ---------------------------------------------------------------------------
 export async function moveItem(
   itemId: string,
@@ -378,28 +352,20 @@ export async function moveItem(
   gardenId: string,
   userId: string
 ) {
-  // Need both upload (to create in new location) and delete (to remove from old)
   await requireMembership(gardenId, userId, "upload");
   await requireMembership(gardenId, userId, "delete");
 
-  const { data: item, error: fetchError } = await supabaseAdmin
-    .from("items")
-    .select("id, garden_id, parent_id")
-    .eq("id", itemId)
-    .single();
+  const stmt = db.prepare(\`SELECT id, garden_id, parent_id FROM items WHERE id = ?\`);
+  const item = stmt.get(itemId) as any;
 
-  if (fetchError || !item) throw new Error("Item not found");
+  if (!item) throw new Error("Item not found");
   if (item.garden_id !== gardenId) throw new Error("Item not in this garden");
   if (item.parent_id === newParentId) throw new Error("Already in this folder");
 
-  // Compute the new parent's s3_key
   let newParentS3Key: string;
   if (newParentId) {
-    const { data: parent } = await supabaseAdmin
-      .from("items")
-      .select("s3_key")
-      .eq("id", newParentId)
-      .single();
+    const parentStmt = db.prepare(\`SELECT s3_key FROM items WHERE id = ?\`);
+    const parent = parentStmt.get(newParentId) as any;
     if (!parent) throw new Error("Destination folder not found");
     newParentS3Key = parent.s3_key;
   } else {
@@ -407,15 +373,14 @@ export async function moveItem(
     newParentS3Key = s3Root(slug);
   }
 
-  // Trigger durable move workflow
   const reqHeaders = await headers();
   await workflowClient.trigger({
-    url: `${getOrigin(reqHeaders)}/api/workflow/move`,
+    url: \`\${getOrigin(reqHeaders)}/api/workflow/move\`,
     body: { gardenId, itemId, newParentId, newParentS3Key },
     retries: 3,
   });
 
-  updateTag(`garden-${gardenId}`);
+  updateTag(\`garden-\${gardenId}\`);
 }
 
 // ---------------------------------------------------------------------------
@@ -430,30 +395,21 @@ export async function createFolder(
   if (!name || name.includes("/")) throw new Error("Invalid folder name");
   await requireMembership(gardenId, userId, "upload");
 
-  const s3Key = await buildS3Key(gardenId, parentId, `${name}/`);
+  const s3Key = await buildS3Key(gardenId, parentId, \`\${name}/\`);
+  const folderId = crypto.randomUUID();
 
-  const { data: folder, error: insertError } = await supabaseAdmin
-    .from("items")
-    .insert({
-      name,
-      s3_key: s3Key,
-      parent_id: parentId || null,
-      garden_id: gardenId,
-      type: "folder",
-      status: "ready",
-    })
-    .select("id, s3_key")
-    .single();
+  const stmt = db.prepare(\`
+    INSERT INTO items (id, name, s3_key, parent_id, garden_id, type, status)
+    VALUES (?, ?, ?, ?, ?, 'folder', 'ready')
+  \`);
+  stmt.run(folderId, name, s3Key, parentId || null, gardenId);
 
-  if (insertError) throw insertError;
-
-  // Create empty S3 object
   await s3Client.send(
     new PutObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key, Body: "" })
   );
 
-  updateTag(`garden-${gardenId}`);
-  return { id: folder.id, s3Key: folder.s3_key };
+  updateTag(\`garden-\${gardenId}\`);
+  return { id: folderId, s3Key };
 }
 
 // ---------------------------------------------------------------------------
@@ -466,32 +422,29 @@ export async function createShareLink(
 ): Promise<string> {
   await requireMembership(gardenId, userId, "upload");
 
-  // Verify item belongs to this garden
-  const { data: item } = await supabaseAdmin
-    .from("items")
-    .select("garden_id")
-    .eq("id", itemId)
-    .single();
+  const itemStmt = db.prepare(\`SELECT garden_id FROM items WHERE id = ?\`);
+  const item = itemStmt.get(itemId) as any;
 
   if (!item || item.garden_id !== gardenId) throw new Error("Item not found");
 
   const shortCode = crypto.randomUUID().substring(0, 8);
+  const shareId = crypto.randomUUID();
+  // 7 days from now
+  const expiresAt = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
 
-  const { error } = await supabaseAdmin.from("shares").insert({
-    short_code: shortCode,
-    item_id: itemId,
-    user_id: userId,
-  });
-
-  if (error) throw error;
+  const stmt = db.prepare(\`
+    INSERT INTO shares (id, short_code, item_id, user_id, expires_at)
+    VALUES (?, ?, ?, ?, ?)
+  \`);
+  stmt.run(shareId, shortCode, itemId, userId, expiresAt);
 
   const reqHeaders = await headers();
-  return `${getOrigin(reqHeaders)}/s/${shortCode}`;
+  return \`\${getOrigin(reqHeaders)}/s/\${shortCode}\`;
 }
 
 // ---------------------------------------------------------------------------
 // Invalidate garden cache (called from client after upload success)
 // ---------------------------------------------------------------------------
 export async function invalidateGardenCache(gardenId: string) {
-  updateTag(`garden-${gardenId}`);
+  updateTag(\`garden-\${gardenId}\`);
 }

@@ -1,7 +1,7 @@
 "use client";
 
 
-import { createClient } from "@/lib/supabase/client";
+import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -16,16 +16,12 @@ export function UpdatePasswordForm({
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    const supabase = createClient();
-    setIsLoading(true);
-    setError(null);
-
     try {
-      const { error } = await supabase.auth.updateUser({ password });
+      const { error } = await authClient.resetPassword({ newPassword: password });
       if (error) throw error;
       router.push("/my-gardens");
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+    } catch (error: any) {
+      setError(error?.message || "An error occurred");
     } finally {
       setIsLoading(false);
     }

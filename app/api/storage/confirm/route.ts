@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { auth } from "@/lib/auth";
+import db from "@/db";
+import { headers } from "next/headers";
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const { data: authData } = await supabase.auth.getClaims();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  if (!authData?.claims) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const userId = authData.claims.sub as string;
+  const userId = session.user.id;
 
   try {
     const { itemId } = await request.json();
@@ -20,23 +21,16 @@ export async function POST(request: Request) {
     }
 
     // Fetch item and verify membership
-    const { data: item, error: fetchError } = await supabaseAdmin
-      .from("items")
-      .select("garden_id, status")
-      .eq("id", itemId)
-      .single();
+    const stmt = db.prepare(`SELECT garden_id, status FROM items WHERE id = ?`);
+    const item = stmt.get(itemId) as any;
 
-    if (fetchError || !item) {
+    if (!item) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
     }
 
     // Verify user is a member with upload permission
-    const { data: membership } = await supabaseAdmin
-      .from("garden_members")
-      .select("can_upload")
-      .eq("garden_id", item.garden_id)
-      .eq("user_id", userId)
-      .single();
+    const memStmt = db.prepare(`SELECT can_upload FROM garden_members WHERE garden_id = ? AND user_id = ?`);
+    const membership = memStmt.get(item.garden_id, userId) as any;
 
     if (!membership?.can_upload) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -46,12 +40,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ confirmed: true });
     }
 
-    const { error: updateError } = await supabaseAdmin
-      .from("items")
-      .update({ status: "ready" })
-      .eq("id", itemId);
-
-    if (updateError) throw updateError;
+    const updateStmt = db.prepare(`UPDATE items SET status = 'ready' WHERE id = ?`);
+    updateStmt.run(itemId);
 
     return NextResponse.json({ confirmed: true });
   } catch (error) {

@@ -1,7 +1,7 @@
 "use client";
 
 
-import { createClient } from "@/lib/supabase/client";
+import { signUp } from "@/lib/auth-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -19,28 +19,17 @@ export function SignUpForm({
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    const supabase = createClient();
-    setIsLoading(true);
-    setError(null);
-
-    if (password !== repeatPassword) {
-      setError("Passwords do not match");
-      setIsLoading(false);
-      return;
-    }
-
     try {
-      const { error } = await supabase.auth.signUp({
+      const { error } = await signUp.email({
         email,
         password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/protected`,
-        },
+        name: email.split("@")[0],
+        callbackURL: `${window.location.origin}/my-gardens`,
       });
       if (error) throw error;
       router.push("/auth/sign-up-success");
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+    } catch (error: any) {
+      setError(error?.message || "An error occurred");
     } finally {
       setIsLoading(false);
     }

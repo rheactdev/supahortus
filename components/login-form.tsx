@@ -1,7 +1,7 @@
 "use client";
 
 
-import { createClient } from "@/lib/supabase/client";
+import { signIn } from "@/lib/auth-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -15,19 +15,15 @@ export function LoginForm() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const supabase = createClient();
-    setIsLoading(true);
-    setError(null);
-
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { error } = await signIn.email({
         email,
         password,
       });
       if (error) throw error;
       router.push("/my-gardens");
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+    } catch (error: any) {
+      setError(error?.message || "An error occurred");
     } finally {
       setIsLoading(false);
     }

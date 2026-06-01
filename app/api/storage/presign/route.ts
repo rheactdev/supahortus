@@ -2,19 +2,20 @@ import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
-import { createClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { auth } from "@/lib/auth";
+import db from "@/db";
+import { headers } from "next/headers";
 import { buildS3Key } from "@/lib/data";
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const { data: authData } = await supabase.auth.getClaims();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  if (!authData?.claims) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const userId = authData.claims.sub as string;
+  const userId = session.user.id;
 
   try {
     const { filename, contentType, parentId, gardenId } = await request.json();
@@ -27,12 +28,8 @@ export async function POST(request: Request) {
     }
 
     // Verify upload permission
-    const { data: membership } = await supabaseAdmin
-      .from("garden_members")
-      .select("can_upload")
-      .eq("garden_id", gardenId)
-      .eq("user_id", userId)
-      .single();
+    const stmt = db.prepare(`SELECT can_upload FROM garden_members WHERE garden_id = ? AND user_id = ?`);
+    const membership = stmt.get(gardenId, userId) as any;
 
     if (!membership?.can_upload) {
       return NextResponse.json({ error: "No upload permission" }, { status: 403 });
@@ -41,20 +38,12 @@ export async function POST(request: Request) {
     const s3Key = await buildS3Key(gardenId, parentId || null, filename);
 
     // Insert pending item record
-    const { data: item, error: insertError } = await supabaseAdmin
-      .from("items")
-      .insert({
-        name: filename,
-        s3_key: s3Key,
-        parent_id: parentId || null,
-        garden_id: gardenId,
-        type: "file",
-        mime_type: contentType || "application/octet-stream",
-      })
-      .select("id")
-      .single();
-
-    if (insertError) throw insertError;
+    const itemId = crypto.randomUUID();
+    const insertStmt = db.prepare(`
+      INSERT INTO items (id, name, s3_key, parent_id, garden_id, type, mime_type)
+      VALUES (?, ?, ?, ?, ?, 'file', ?)
+    `);
+    insertStmt.run(itemId, filename, s3Key, parentId || null, gardenId, contentType || "application/octet-stream");
 
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
@@ -68,7 +57,7 @@ export async function POST(request: Request) {
       method: "PUT",
       url,
       headers: { "Content-Type": contentType },
-      itemId: item.id,
+      itemId,
     });
   } catch (error) {
     console.error("Presign error:", error);

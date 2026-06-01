@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Navbar } from "@/components/ui/navbar";
 
@@ -9,10 +10,11 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  if (!data?.claims) {
+  // Only allow admins
+  if (!session || session.user.role !== 'admin') {
     return redirect("/auth/login");
   }
 

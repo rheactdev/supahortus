@@ -1,15 +1,16 @@
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import db from "@/db";
 
 export default async function AdminUsersPage() {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  if (!data?.claims) return redirect("/auth/login");
+  if (!session?.user || session.user.role !== 'admin') return redirect("/auth/login");
 
-  const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
-  const users = usersData?.users ?? [];
+  const stmt = db.prepare(`SELECT id, name, email, emailVerified, image, createdAt, updatedAt FROM user`);
+  const users = stmt.all() as any[];
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -26,8 +27,7 @@ export default async function AdminUsersPage() {
             <tr className="bg-base-200/50">
               <th>Email</th>
               <th>Created</th>
-              <th>Last Sign In</th>
-              <th>Provider</th>
+              <th>Last Updated</th>
             </tr>
           </thead>
           <tbody>
@@ -46,17 +46,10 @@ export default async function AdminUsersPage() {
                   </div>
                 </td>
                 <td className="text-sm text-base-content/60">
-                  {new Date(user.created_at).toLocaleDateString()}
+                  {new Date(user.createdAt).toLocaleDateString()}
                 </td>
                 <td className="text-sm text-base-content/60">
-                  {user.last_sign_in_at
-                    ? new Date(user.last_sign_in_at).toLocaleDateString()
-                    : "Never"}
-                </td>
-                <td>
-                  <span className="badge badge-sm badge-ghost">
-                    {user.app_metadata?.provider ?? "email"}
-                  </span>
+                  {new Date(user.updatedAt).toLocaleDateString()}
                 </td>
               </tr>
             ))}

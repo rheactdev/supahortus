@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 
 export default async function Home() {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  if (data?.claims) {
+  if (session?.user) {
     redirect("/my-gardens");
   } else {
     redirect("/auth/login");

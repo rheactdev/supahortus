@@ -1,12 +1,12 @@
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { LogoutButton } from "./logout-button";
 
 export async function AuthButton() {
-  const supabase = await createClient();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  const { data } = await supabase.auth.getClaims();
-
-  const user = data?.claims;
+  const user = session?.user;
   if (!user) {
     return null
   }

@@ -1,15 +1,17 @@
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { getGardensForUser } from "@/lib/data";
 import Link from "next/link";
 import { Folder } from "@/components/icons/liquid-glass";
+import { redirect } from "next/navigation";
 
 export default async function AdminGardensPage() {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+  const reqHeaders = await headers();
+  const session = await auth.api.getSession({ headers: reqHeaders });
 
-  if (!data?.claims) return null;
+  if (!session?.user || session.user.role !== 'admin') return redirect("/auth/login");
 
-  const userId = data.claims.sub as string;
+  const userId = session.user.id;
   const gardens = await getGardensForUser(userId);
 
   return (
