@@ -173,7 +173,7 @@ export const FileCard = memo(function FileCard({
                   icon={curIcon.icon}
                 />
               ) : (
-                <DocumentIcon size={18} />
+                <FileIcon size={18} />
               )}
             </div>
 
@@ -276,7 +276,7 @@ export const FileCard = memo(function FileCard({
                     icon={curIcon.icon}
                   />
                 ) : (
-                  <DocumentIcon size={32} />
+                  <FileIcon size={32} />
                 )}
                 {/* <FileIcon
                   size={32}
