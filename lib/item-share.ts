@@ -45,7 +45,7 @@ export async function getItemShareContext(
   const { data: root } = await supabaseAdmin
     .from("items")
     .select(
-      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, mime_type, created_at",
+      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, preview_key, preview_status, mime_type, created_at",
     )
     .eq("id", share.item_id)
     .eq("status", "ready")
@@ -84,7 +84,7 @@ async function getReadyItem(itemId: string): Promise<Item | null> {
   const { data } = await supabaseAdmin
     .from("items")
     .select(
-      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, mime_type, created_at",
+      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, preview_key, preview_status, mime_type, created_at",
     )
     .eq("id", itemId)
     .eq("status", "ready")
@@ -115,7 +115,7 @@ export async function getSharedFolderView(
   const { data } = await supabaseAdmin
     .from("items")
     .select(
-      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, mime_type, created_at",
+      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, preview_key, preview_status, mime_type, created_at",
     )
     .eq("garden_id", context.root.garden_id)
     .eq("parent_id", folder.id)

@@ -157,10 +157,14 @@ export async function deleteGarden(gardenId: string, userId: string) {
   // Collect all S3 keys before deleting from DB
   const { data: items } = await supabaseAdmin
     .from("items")
-    .select("s3_key")
+    .select("s3_key, thumbnail_key, preview_key")
     .eq("garden_id", gardenId);
 
-  const keysToDelete = (items || []).map((i) => i.s3_key);
+  const keysToDelete = (items || []).flatMap((item) => [
+    item.s3_key,
+    ...(item.thumbnail_key ? [item.thumbnail_key] : []),
+    ...(item.preview_key ? [item.preview_key] : []),
+  ]);
   // Add the garden root marker
   keysToDelete.push(s3Root(slug));
 

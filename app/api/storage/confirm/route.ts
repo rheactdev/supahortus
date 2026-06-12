@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { Client } from "@upstash/qstash";
 import { requireGardenPermission } from "@/lib/storage-access";
 import { getAppBaseUrl } from "@/lib/app-url";
+import { isOfficeFile, queueOfficePreview } from "@/lib/office-preview";
 
 const qstash = new Client({ token: process.env.QSTASH_TOKEN || "" });
 
@@ -67,6 +68,15 @@ export async function POST(request: Request) {
           s3Key: item.s3_key,
           filename: item.name,
         },
+      });
+    }
+
+    if (isOfficeFile(item.name)) {
+      await queueOfficePreview({
+        id: itemId,
+        garden_id: item.garden_id,
+        name: item.name,
+        s3_key: item.s3_key,
       });
     }
 

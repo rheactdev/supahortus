@@ -15,6 +15,8 @@ export type Item = {
   type: "file" | "folder";
   s3_key: string;
   thumbnail_key: string | null;
+  preview_key: string | null;
+  preview_status: "pending" | "ready" | "failed" | null;
   mime_type: string | null;
   created_at: string;
 };
@@ -80,7 +82,7 @@ export async function getItems(
 
   let query = supabaseAdmin
     .from("items")
-    .select("id, garden_id, parent_id, name, type, s3_key, thumbnail_key, mime_type, created_at")
+    .select("id, garden_id, parent_id, name, type, s3_key, thumbnail_key, preview_key, preview_status, mime_type, created_at")
     .eq("garden_id", gardenId)
     .eq("status", "ready")
     .order("type", { ascending: true }) // folders first
@@ -115,6 +117,13 @@ export type GlobalSearchResult = Item & {
   };
 };
 
+type SearchItemRow = Item & {
+  gardens: {
+    name: string;
+    slug: string;
+  };
+};
+
 export async function searchAllItems(
   userId: string,
   searchQuery: string
@@ -130,7 +139,7 @@ export async function searchAllItems(
 
   const { data } = await supabaseAdmin
     .from("items")
-    .select("id, garden_id, parent_id, name, type, s3_key, thumbnail_key, mime_type, created_at, gardens(name, slug)")
+    .select("id, garden_id, parent_id, name, type, s3_key, thumbnail_key, preview_key, preview_status, mime_type, created_at, gardens(name, slug)")
     .in("garden_id", gardenIds)
     .eq("status", "ready")
     .textSearch("fts", `'${searchQuery}'`, {
@@ -141,7 +150,9 @@ export async function searchAllItems(
     .order("name");
 
   // Map permissions from the fetched gardens to the results
-  const resultsWithPermissions = (data as any[] || []).map((item) => {
+  const resultsWithPermissions = (
+    (data as unknown as SearchItemRow[]) || []
+  ).map((item) => {
     const gardenData = gardens.find((g) => g.id === item.garden_id);
     return {
       ...item,

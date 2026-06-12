@@ -9,6 +9,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { Client } from "@upstash/qstash";
 import { requireAdmin } from "@/lib/admin-access";
+import { isOfficeFile, queueOfficePreview } from "@/lib/office-preview";
 
 type SyncedItem = {
   id: string;
@@ -197,4 +198,26 @@ export async function generateMissingThumbnails() {
   }
   
   return { success: true, count };
+}
+
+export async function generateMissingOfficePreviews() {
+  await requireAdmin();
+
+  const { data: items, error } = await supabaseAdmin
+    .from("items")
+    .select("id, garden_id, name, s3_key, preview_status")
+    .eq("type", "file")
+    .eq("status", "ready");
+
+  if (error || !items) throw new Error("Failed to fetch Office documents");
+
+  const targets = items.filter(
+    (item) => isOfficeFile(item.name) && item.preview_status !== "ready",
+  );
+
+  for (const item of targets) {
+    await queueOfficePreview(item);
+  }
+
+  return { success: true, count: targets.length };
 }

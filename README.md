@@ -43,6 +43,10 @@ S3_SECRET_ACCESS_KEY=your_secret_key
 S3_REGION=your_region
 S3_BUCKET_NAME=your_bucket_name
 S3_ENDPOINT=your_optional_endpoint # e.g., for Cloudflare R2 or MinIO
+
+# Office preview conversion service
+OFFICE_CONVERTER_URL=https://office-converter.example.com
+OFFICE_CONVERTER_SECRET=use-a-long-random-secret
 ```
 
 ### Installation

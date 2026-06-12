@@ -64,6 +64,9 @@ CREATE TABLE public.items (
   type text NOT NULL,
   s3_key text NOT NULL,
   thumbnail_key text NULL,
+  preview_key text NULL,
+  preview_status text NULL,
+  preview_error text NULL,
   mime_type text NULL,
   status text NOT NULL DEFAULT 'pending',
   fts tsvector GENERATED ALWAYS AS (to_tsvector('english', name)) STORED,
@@ -79,7 +82,11 @@ CREATE TABLE public.items (
     ON DELETE CASCADE,
   CONSTRAINT items_s3_key_unique UNIQUE (s3_key),
   CONSTRAINT items_type_check CHECK (type IN ('file', 'folder')),
-  CONSTRAINT items_status_check CHECK (status IN ('pending', 'ready'))
+  CONSTRAINT items_status_check CHECK (status IN ('pending', 'ready')),
+  CONSTRAINT items_preview_status_check CHECK (
+    preview_status IS NULL
+    OR preview_status IN ('pending', 'ready', 'failed')
+  )
 );
 
 -- ==============================================================================
@@ -173,6 +180,10 @@ CREATE INDEX idx_items_fts
 CREATE INDEX idx_items_pending
   ON public.items (garden_id, status)
   WHERE status = 'pending';
+
+CREATE INDEX idx_items_office_preview_pending
+  ON public.items (preview_status, updated_at)
+  WHERE preview_status = 'pending';
 
 CREATE INDEX idx_shares_item_id
   ON public.shares (item_id);

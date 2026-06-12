@@ -34,6 +34,8 @@ const CodePreview = dynamic(
   { loading: () => <PreviewSpinner /> },
 );
 
+const OFFICE_EXTENSIONS = new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx"]);
+
 const IMAGE_EXTENSIONS = new Set([
   "jpg",
   "jpeg",
@@ -110,7 +112,14 @@ const CODE_EXTENSIONS = new Set([
   "php",
 ]);
 
-type FileType = "image" | "video" | "audio" | "pdf" | "code" | "unknown";
+type FileType =
+  | "image"
+  | "video"
+  | "audio"
+  | "pdf"
+  | "office"
+  | "code"
+  | "unknown";
 
 function getExtension(name: string) {
   const baseName = name.toLowerCase();
@@ -132,6 +141,7 @@ function detectFileType(item: Item): FileType {
     return "audio";
   }
   if (mimeType === "application/pdf" || extension === "pdf") return "pdf";
+  if (OFFICE_EXTENSIONS.has(extension)) return "office";
   if (mimeType.startsWith("text/") || CODE_EXTENSIONS.has(extension)) {
     return "code";
   }
@@ -180,10 +190,27 @@ export function FilePreviewModal({
 
     async function loadPreviewUrl() {
       try {
-        const response = await fetch(
-          `/api/storage/download?id=${encodeURIComponent(file.id)}`,
-          { signal: controller.signal },
-        );
+        const endpoint =
+          fileType === "office"
+            ? `/api/storage/office-preview?id=${encodeURIComponent(file.id)}`
+            : `/api/storage/download?id=${encodeURIComponent(file.id)}`;
+        let response = await fetch(endpoint, { signal: controller.signal });
+        let attempts = 0;
+        while (
+          fileType === "office" &&
+          response.status === 202 &&
+          attempts < 150
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          if (controller.signal.aborted) return;
+          response = await fetch(endpoint, { signal: controller.signal });
+          attempts += 1;
+        }
+        if (response.status === 202) {
+          throw new Error(
+            "This Office preview is still converting. Try again shortly.",
+          );
+        }
         const result = (await response.json()) as {
           url?: string;
           error?: string;
@@ -206,7 +233,7 @@ export function FilePreviewModal({
 
     void loadPreviewUrl();
     return () => controller.abort();
-  }, [file.id]);
+  }, [file.id, fileType]);
 
   useEffect(() => {
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -426,6 +453,8 @@ function PreviewContent({
     case "audio":
       return <AudioPreview url={url} name={file.name} />;
     case "pdf":
+      return <PdfPreview url={url} name={file.name} />;
+    case "office":
       return <PdfPreview url={url} name={file.name} />;
     case "code":
       return <CodePreview itemId={file.id} name={file.name} />;

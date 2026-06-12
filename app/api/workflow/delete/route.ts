@@ -19,7 +19,7 @@ export const { POST } = serve<DeletePayload>(
     const { s3Keys } = await context.run("fetch-keys", async () => {
       const { data: item } = await supabaseAdmin
         .from("items")
-        .select("s3_key, type")
+        .select("s3_key, thumbnail_key, preview_key, type")
         .eq("id", itemId)
         .single();
 
@@ -29,11 +29,19 @@ export const { POST } = serve<DeletePayload>(
       if (item.type === "folder") {
         const { data: descendants } = await supabaseAdmin
           .from("items")
-          .select("s3_key")
+          .select("s3_key, thumbnail_key, preview_key")
           .like("s3_key", `${item.s3_key}%`);
-        keys = (descendants || []).map((d) => d.s3_key);
+        keys = (descendants || []).flatMap((descendant) => [
+          descendant.s3_key,
+          ...(descendant.thumbnail_key ? [descendant.thumbnail_key] : []),
+          ...(descendant.preview_key ? [descendant.preview_key] : []),
+        ]);
       } else {
-        keys = [item.s3_key];
+        keys = [
+          item.s3_key,
+          ...(item.thumbnail_key ? [item.thumbnail_key] : []),
+          ...(item.preview_key ? [item.preview_key] : []),
+        ];
       }
 
       return { s3Keys: keys, isFolder: item.type === "folder" };
