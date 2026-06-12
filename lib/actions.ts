@@ -706,18 +706,17 @@ export async function createShareLink(
 ): Promise<string> {
   await requireMembership(gardenId, userId, "upload");
 
-  // Verify the item is a completed file in this garden.
+  // Verify the item is completed and belongs to this garden.
   const { data: item } = await supabaseAdmin
     .from("items")
-    .select("garden_id, status, type")
+    .select("garden_id, status")
     .eq("id", itemId)
     .single();
 
   if (
     !item ||
     item.garden_id !== gardenId ||
-    item.status !== "ready" ||
-    item.type !== "file"
+    item.status !== "ready"
   ) {
     throw new Error("Item not found");
   }

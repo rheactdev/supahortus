@@ -541,7 +541,18 @@ AS $$
 $$;
 
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA private
-  FROM PUBLIC, anon, authenticated, service_role;
+  FROM PUBLIC, anon, service_role;
+
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA private
+  TO authenticated;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA private
+  REVOKE EXECUTE ON FUNCTIONS
+  FROM PUBLIC, anon, service_role;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA private
+  GRANT EXECUTE ON FUNCTIONS
+  TO authenticated;
 
 -- ==============================================================================
 -- 9. Enable RLS

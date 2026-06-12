@@ -3,6 +3,8 @@ import { GetObjectCommand, type GetObjectCommandInput } from "@aws-sdk/client-s3
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { requireGardenPermission } from "@/lib/storage-access";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -11,6 +13,7 @@ export async function GET(request: Request) {
   if (!authData?.claims) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const userId = authData.claims.sub as string;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
@@ -23,10 +26,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    // RLS enforces access — only garden members can SELECT items
-    const { data: item, error: fetchError } = await supabase
+    const { data: item, error: fetchError } = await supabaseAdmin
       .from("items")
-      .select("s3_key, name, mime_type")
+      .select("garden_id, s3_key, name, mime_type")
       .eq("type", "file")
       .eq("status", "ready")
       .eq("id", id)
@@ -34,6 +36,12 @@ export async function GET(request: Request) {
 
     if (fetchError || !item) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    }
+
+    try {
+      await requireGardenPermission(item.garden_id, userId, "read");
+    } catch {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const commandConfig: GetObjectCommandInput = {

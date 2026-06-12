@@ -251,10 +251,10 @@ export const FileCard = memo(function FileCard({
                   <MenuDots size={16} />
                 </DropdownTrigger>
                 <DropdownContent className="w-48 z-[20]">
-                  {allowShareLinks && (
+                  {allowShareLinks && canUpload && (
                     <li>
                       <button onClick={handleShare}>
-                        <Share size={16} className="text-info" /> Share Link
+                        <Share size={16} className="text-info" /> Share file
                       </button>
                     </li>
                   )}

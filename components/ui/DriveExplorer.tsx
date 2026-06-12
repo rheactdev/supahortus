@@ -16,12 +16,18 @@ import {
   DocumentIcon,
   Trash,
   Close,
+  Share,
 } from "@/components/icons/liquid-glass";
 import { FileCard } from "./FileCard";
 import Link from "next/link";
 import { Breadcrumb } from "./breadcrumb";
 import { useRouter } from "next/navigation";
-import { deleteFiles, moveFiles, renameItem } from "@/lib/actions";
+import {
+  createShareLink,
+  deleteFiles,
+  moveFiles,
+  renameItem,
+} from "@/lib/actions";
 import type {
   Item,
   BreadcrumbItem,
@@ -151,6 +157,16 @@ export function DriveExplorer({
       showToast(err instanceof Error ? err.message : "Failed to rename");
     } finally {
       setRenameLoading(false);
+    }
+  };
+
+  const handleShare = async (item: Item) => {
+    try {
+      const url = await createShareLink(item.id, gardenId, userId);
+      await navigator.clipboard.writeText(url);
+      showToast(`${item.type === "folder" ? "Folder" : "File"} link copied`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to create link");
     }
   };
 
@@ -488,6 +504,20 @@ export function DriveExplorer({
                               <MenuDots size={18} />
                             </DropdownTrigger>
                             <DropdownContent className="w-48 z-[20]">
+                              {allowShareLinks && canUpload ? (
+                                <li>
+                                  <button
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      void handleShare(folder);
+                                    }}
+                                  >
+                                    <Share size={16} className="text-info" />
+                                    Share folder
+                                  </button>
+                                </li>
+                              ) : null}
                               <li>
                                 <button
                                   onClick={(e) => {
