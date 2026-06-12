@@ -6,6 +6,7 @@ import {
   getThumbnailUrls,
   getGardenMembership,
   getGardenBySlug,
+  getMoveTreeForUser,
 } from "@/lib/data";
 import dynamic from "next/dynamic";
 
@@ -42,7 +43,10 @@ export default async function GardenPage({
   if (!membership) return redirect("/my-gardens");
 
   // Root folder — no parentId
-  const items = await getItems(garden.id, null);
+  const [items, moveTree] = await Promise.all([
+    getItems(garden.id, null),
+    getMoveTreeForUser(userId),
+  ]);
 
   // Batch-generate thumbnail URLs for image files
   const imageItems = items.filter(
@@ -73,7 +77,7 @@ export default async function GardenPage({
         userId={userId}
         canUpload={membership.can_upload}
         canDelete={membership.can_delete}
-        role={membership.role}
+        moveTree={moveTree}
       />
     </Suspense>
   );

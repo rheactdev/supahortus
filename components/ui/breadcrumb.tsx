@@ -8,22 +8,22 @@ interface BreadcrumbItem {
 
 interface BreadcrumbProps {
     breadcrumbs: BreadcrumbItem[];
-    gardenSlug: string;
+    basePath: string;
 }
 
-export const Breadcrumb = ({ breadcrumbs, gardenSlug }: BreadcrumbProps) => {
+export const Breadcrumb = ({ breadcrumbs, basePath }: BreadcrumbProps) => {
     return (
         <div className="breadcrumbs text-sm">
             <ul>
                 <li>
-                    <Link href={`/my-gardens/${gardenSlug}`} >
+                    <Link href={basePath} >
                         <HardDrive />
                         <span>Root</span>
                     </Link>
                 </li>
                 {breadcrumbs.map((crumb) => (
                     <li key={crumb.id}>
-                        <Link href={`/my-gardens/${gardenSlug}/${crumb.id}`} className="inline-flex items-center gap-2">
+                        <Link href={`${basePath}/${crumb.id}`} className="inline-flex items-center gap-2">
                             <Folder />
                             <span>{crumb.name}</span>
                         </Link>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
+import { requirePendingUpload } from "@/lib/storage-access";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -10,16 +11,19 @@ export async function POST(request: Request) {
   if (!authData?.claims) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const userId = authData.claims.sub as string;
 
   try {
-    const { uploadId, key, parts } = await request.json();
+    const { uploadId, key, parts, itemId } = await request.json();
 
-    if (!uploadId || !key || !parts) {
+    if (!uploadId || !key || !parts || !itemId) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
     }
+
+    await requirePendingUpload(itemId, key, userId);
 
     await s3Client.send(
       new CompleteMultipartUploadCommand({

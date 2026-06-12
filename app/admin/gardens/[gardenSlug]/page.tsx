@@ -4,6 +4,7 @@ import {
   getGardenBySlug,
   getGardenMembership,
   getGardenMembers,
+  getGardenPublicLink,
 } from "@/lib/data";
 import { GardenSettings } from "@/components/ui/GardenSettings";
 import { MemberManager } from "@/components/ui/MemberManager";
@@ -31,7 +32,10 @@ export default async function SettingsPage({
     return redirect("/my-gardens");
   }
 
-  const members = await getGardenMembers(garden.id);
+  const [members, publicLink] = await Promise.all([
+    getGardenMembers(garden.id),
+    getGardenPublicLink(garden.id),
+  ]);
 
   return (
     <div className="flex flex-col gap-8 w-full">
@@ -61,6 +65,7 @@ export default async function SettingsPage({
         members={members}
         userId={userId}
         gardenName={garden.name}
+        publicLink={publicLink}
       />
     </div>
   );

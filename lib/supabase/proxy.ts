@@ -42,8 +42,9 @@ export async function updateSession(request: NextRequest) {
   const isLoginRoute = request.nextUrl.pathname.startsWith("/login");
   const isWorkerRoute = request.nextUrl.pathname.endsWith("-worker");
   const isWebhookRoute = request.nextUrl.pathname.startsWith("/api/workflow") || request.nextUrl.pathname.startsWith("/api/revalidate");
+  const isPublicGardenRoute = request.nextUrl.pathname.startsWith("/public/g/");
 
-  if (!user && !isAuthRoute && !isLoginRoute && !isWorkerRoute && !isWebhookRoute && request.nextUrl.pathname !== "/") {
+  if (!user && !isAuthRoute && !isLoginRoute && !isWorkerRoute && !isWebhookRoute && !isPublicGardenRoute && request.nextUrl.pathname !== "/") {
     console.log(`[middleware] Redirecting unauthenticated request to ${request.nextUrl.pathname} to login`);
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";

@@ -3,6 +3,7 @@ import { UploadPartCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
+import { requirePendingUpload } from "@/lib/storage-access";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -11,13 +12,15 @@ export async function GET(request: Request) {
   if (!authData?.claims) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const userId = authData.claims.sub as string;
 
   const { searchParams } = new URL(request.url);
   const uploadId = searchParams.get("uploadId");
   const key = searchParams.get("key");
   const partNumber = searchParams.get("partNumber");
+  const itemId = searchParams.get("itemId");
 
-  if (!uploadId || !key || !partNumber) {
+  if (!uploadId || !key || !partNumber || !itemId) {
     return NextResponse.json(
       { error: "Missing required parameters" },
       { status: 400 }
@@ -25,6 +28,8 @@ export async function GET(request: Request) {
   }
 
   try {
+    await requirePendingUpload(itemId, key, userId);
+
     const command = new UploadPartCommand({
       Bucket: BUCKET_NAME,
       Key: key,

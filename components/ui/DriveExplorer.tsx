@@ -14,14 +14,22 @@ import {
   Folder,
   MenuDots,
   DocumentIcon,
+  Trash,
+  Close,
 } from "@/components/icons/liquid-glass";
 import { FileCard } from "./FileCard";
 import Link from "next/link";
 import { Breadcrumb } from "./breadcrumb";
 import { useRouter } from "next/navigation";
-import { renameItem } from "@/lib/actions";
-import type { Item, BreadcrumbItem } from "@/lib/data";
+import { deleteFiles, moveFiles, renameItem } from "@/lib/actions";
+import type {
+  Item,
+  BreadcrumbItem,
+  MoveTreeGarden,
+} from "@/lib/data";
 import Image from "next/image";
+import { MoveFilesDialog } from "./MoveFilesDialog";
+import { FilePreviewModal } from "./FilePreviewModal";
 
 interface DriveExplorerProps {
   items: Item[];
@@ -33,7 +41,9 @@ interface DriveExplorerProps {
   userId: string;
   canUpload: boolean;
   canDelete: boolean;
-  role: string;
+  basePath?: string;
+  allowShareLinks?: boolean;
+  moveTree?: MoveTreeGarden[];
 }
 
 export function DriveExplorer({
@@ -46,7 +56,9 @@ export function DriveExplorer({
   userId,
   canUpload,
   canDelete,
-  role,
+  basePath = `/my-gardens/${gardenSlug}`,
+  allowShareLinks = true,
+  moveTree = [],
 }: DriveExplorerProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -55,6 +67,10 @@ export function DriveExplorer({
   const [renameModal, setRenameModal] = useState<Item | null>(null);
   const [renameName, setRenameName] = useState("");
   const [renameLoading, setRenameLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [previewFile, setPreviewFile] = useState<Item | null>(null);
 
   const [viewConfig, setViewConfig] = useState<{
     cardSize: number;
@@ -78,9 +94,29 @@ export function DriveExplorer({
     if (saved) {
       try {
         setViewConfig(JSON.parse(saved));
-      } catch (e) {}
+      } catch {}
     }
   }, [folderId, gardenId]);
+
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const visibleIds = new Set(
+        items.filter((item) => item.type === "file").map((item) => item.id),
+      );
+      return new Set([...current].filter((id) => visibleIds.has(id)));
+    });
+  }, [items]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !previewFile) {
+        setSelectedIds(new Set());
+        setShowMoveDialog(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [previewFile]);
 
   const updateConfig = (updates: Partial<typeof viewConfig>) => {
     const newConfig = { ...viewConfig, ...updates };
@@ -118,6 +154,67 @@ export function DriveExplorer({
     }
   };
 
+  const toggleFileSelection = useCallback((itemId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleDeleteSelected = async () => {
+    if (
+      selectedIds.size === 0 ||
+      !window.confirm(
+        `Delete ${selectedIds.size} selected file${
+          selectedIds.size === 1 ? "" : "s"
+        }?`,
+      )
+    ) {
+      return;
+    }
+
+    setBulkActionLoading(true);
+    try {
+      await deleteFiles([...selectedIds], gardenId, userId);
+      setSelectedIds(new Set());
+      showToast("Files queued for deletion");
+      refreshData();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to delete files");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleMoveSelected = async (destination: {
+    gardenId: string;
+    parentId: string | null;
+  }) => {
+    setBulkActionLoading(true);
+    try {
+      await moveFiles(
+        [...selectedIds],
+        gardenId,
+        destination.gardenId,
+        destination.parentId,
+        userId,
+      );
+      setShowMoveDialog(false);
+      setSelectedIds(new Set());
+      showToast("Files queued to move");
+      refreshData();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to move files");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
   const folders = items.filter((i) => i.type === "folder");
   const files = items.filter((i) => i.type === "file");
 
@@ -152,8 +249,8 @@ export function DriveExplorer({
   return (
     <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <Breadcrumb breadcrumbs={breadcrumbs} gardenSlug={gardenSlug} />
-        <div className="flex gap-2 items-center">
+        <Breadcrumb breadcrumbs={breadcrumbs} basePath={basePath} />
+        <div className="flex gap-2 items-center flex-wrap">
           {mounted && (
             <>
               <Dropdown className="dropdown-end z-50">
@@ -263,7 +360,9 @@ export function DriveExplorer({
                       className="select select-bordered select-sm w-full"
                       value={viewConfig.imageFit}
                       onChange={(e) =>
-                        updateConfig({ imageFit: e.target.value as any })
+                        updateConfig({
+                          imageFit: e.target.value as "cover" | "contain",
+                        })
                       }
                     >
                       <option value="cover">Cover</option>
@@ -309,6 +408,51 @@ export function DriveExplorer({
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="sticky top-3 z-30 flex flex-wrap items-center justify-between gap-3 border-y border-primary/20 bg-base-200/95 px-3 py-2 shadow-sm backdrop-blur-sm">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="badge badge-primary">
+              {selectedIds.size}
+            </span>
+            <span className="text-sm font-medium truncate">
+              file{selectedIds.size === 1 ? "" : "s"} selected
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            {canDelete && moveTree.some((garden) => garden.can_upload) && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowMoveDialog(true)}
+                disabled={bulkActionLoading}
+              >
+                <Folder size={16} />
+                Move
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm text-error"
+                onClick={handleDeleteSelected}
+                disabled={bulkActionLoading}
+              >
+                <Trash size={16} />
+                Delete
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm btn-square"
+              onClick={() => setSelectedIds(new Set())}
+              title="Clear selection"
+            >
+              <Close size={15} />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="overflow-hidden min-h-[50vh] flex flex-col">
         {isPending ? (
           <div className="w-full h-100 flex justify-center items-center">
@@ -318,7 +462,11 @@ export function DriveExplorer({
           <div className="flex flex-col flex-1 justify-center items-center text-base-content/40 gap-4 min-h-[400px]">
             <Folder size={64} className="opacity-20" />
             <p className="font-semibold text-lg">No files or folders here</p>
-            <p className="text-sm">Upload something to get started</p>
+            <p className="text-sm">
+              {canUpload
+                ? "Upload something to get started"
+                : "Nothing has been added yet"}
+            </p>
           </div>
         ) : (
           <div className="flex flex-col gap-8 w-full">
@@ -362,7 +510,7 @@ export function DriveExplorer({
                       )}
 
                       <Link
-                        href={`/my-gardens/${gardenSlug}/${folder.id}`}
+                        href={`${basePath}/${folder.id}`}
                         className="card-body p-4 flex flex-row items-center gap-3 w-full"
                       >
                         <Folder
@@ -403,6 +551,11 @@ export function DriveExplorer({
                       folderId={folderId}
                       canUpload={canUpload}
                       canDelete={canDelete}
+                      allowShareLinks={allowShareLinks}
+                      isSelected={selectedIds.has(file.id)}
+                      selectionEnabled={canDelete}
+                      onToggleSelection={toggleFileSelection}
+                      onPreview={setPreviewFile}
                       onRefresh={refreshData}
                       viewConfig={viewConfig}
                     />
@@ -464,6 +617,27 @@ export function DriveExplorer({
             </button>
           </form>
         </dialog>
+      )}
+
+      {showMoveDialog && (
+        <MoveFilesDialog
+          gardens={moveTree}
+          selectedCount={selectedIds.size}
+          currentGardenId={gardenId}
+          currentFolderId={folderId}
+          loading={bulkActionLoading}
+          onClose={() => setShowMoveDialog(false)}
+          onMove={handleMoveSelected}
+        />
+      )}
+
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          files={sortedFiles}
+          onClose={() => setPreviewFile(null)}
+          onNavigate={setPreviewFile}
+        />
       )}
 
       {toast && (

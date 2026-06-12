@@ -7,6 +7,7 @@ import {
   getThumbnailUrls,
   getGardenMembership,
   getGardenBySlug,
+  getMoveTreeForUser,
 } from "@/lib/data";
 import dynamic from "next/dynamic";
 
@@ -43,9 +44,10 @@ export default async function FolderPage({
   if (!membership) return redirect("/my-gardens");
 
   // Parallel data fetching
-  const [items, breadcrumbs] = await Promise.all([
+  const [items, breadcrumbs, moveTree] = await Promise.all([
     getItems(garden.id, folderId),
-    getBreadcrumbs(folderId),
+    getBreadcrumbs(garden.id, folderId),
+    getMoveTreeForUser(userId),
   ]);
 
   // Batch-generate thumbnail URLs for image files
@@ -77,7 +79,7 @@ export default async function FolderPage({
         userId={userId}
         canUpload={membership.can_upload}
         canDelete={membership.can_delete}
-        role={membership.role}
+        moveTree={moveTree}
       />
     </Suspense>
   );

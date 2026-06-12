@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { Client } from "@upstash/qstash";
+import { requireGardenPermission } from "@/lib/storage-access";
+import { getAppBaseUrl } from "@/lib/app-url";
 
 const qstash = new Client({ token: process.env.QSTASH_TOKEN || "" });
 
@@ -33,15 +35,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
     }
 
-    // Verify user is a member with upload permission
-    const { data: membership } = await supabaseAdmin
-      .from("garden_members")
-      .select("can_upload")
-      .eq("garden_id", item.garden_id)
-      .eq("user_id", userId)
-      .single();
-
-    if (!membership?.can_upload) {
+    try {
+      await requireGardenPermission(item.garden_id, userId, "upload");
+    } catch {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -60,11 +56,8 @@ export async function POST(request: Request) {
 
     // Check if we need to generate a thumbnail
     if (/\.(psd|afdesign|afphoto|afpub|af)$/i.test(item.name)) {
-      const baseUrl = process.env.UPSTASH_WORKFLOW_URL || 
-        (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 
-        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"));
       await qstash.publishJSON({
-        url: `${baseUrl}/api/workflow/thumbnail`,
+        url: `${getAppBaseUrl()}/api/workflow/thumbnail`,
         headers: process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
           "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
         } : undefined,

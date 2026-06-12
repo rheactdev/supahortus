@@ -5,6 +5,7 @@ import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildS3Key } from "@/lib/data";
+import { requireGardenPermission } from "@/lib/storage-access";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -26,15 +27,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Verify upload permission
-    const { data: membership } = await supabaseAdmin
-      .from("garden_members")
-      .select("can_upload")
-      .eq("garden_id", gardenId)
-      .eq("user_id", userId)
-      .single();
-
-    if (!membership?.can_upload) {
+    try {
+      await requireGardenPermission(gardenId, userId, "upload");
+    } catch {
       return NextResponse.json({ error: "No upload permission" }, { status: 403 });
     }
 

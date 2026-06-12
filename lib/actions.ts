@@ -12,6 +12,8 @@ import { Client as WorkflowClient } from "@upstash/workflow";
 import { Client as QStashClient } from "@upstash/qstash";
 import { headers } from "next/headers";
 import { buildS3Key } from "@/lib/data";
+import { createClient } from "@/lib/supabase/server";
+import { getGardenAccessForUser } from "@/lib/garden-access";
 
 const workflowClient = new WorkflowClient({ token: process.env.QSTASH_TOKEN! });
 const qstashClient = new QStashClient({ token: process.env.QSTASH_TOKEN! });
@@ -24,14 +26,16 @@ async function requireMembership(
   userId: string,
   permission?: "upload" | "delete" | "owner"
 ) {
-  const { data, error } = await supabaseAdmin
-    .from("garden_members")
-    .select("can_upload, can_delete, role")
-    .eq("garden_id", gardenId)
-    .eq("user_id", userId)
-    .single();
+  const supabase = await createClient();
+  const { data: authData } = await supabase.auth.getClaims();
+  const currentUserId = authData?.claims?.sub as string | undefined;
 
-  if (error || !data) throw new Error("Not a member of this garden");
+  if (!currentUserId || currentUserId !== userId) {
+    throw new Error("Unauthorized");
+  }
+
+  const data = await getGardenAccessForUser(gardenId, userId);
+  if (!data) throw new Error("No access to this garden");
 
   if (permission === "upload" && !data.can_upload)
     throw new Error("No upload permission");
@@ -41,6 +45,21 @@ async function requireMembership(
     throw new Error("Not a garden owner");
 
   return data;
+}
+
+async function requireCurrentUser(expectedUserId?: string): Promise<string> {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  const currentUserId = data?.claims?.sub;
+
+  if (
+    typeof currentUserId !== "string" ||
+    (expectedUserId && currentUserId !== expectedUserId)
+  ) {
+    throw new Error("Unauthorized");
+  }
+
+  return currentUserId;
 }
 
 function getOrigin(reqHeaders: Headers): string {
@@ -67,6 +86,8 @@ function s3Root(slug: string): string {
 // Create a garden
 // ---------------------------------------------------------------------------
 export async function createGarden(name: string, slug: string, userId: string) {
+  await requireCurrentUser(userId);
+
   if (!name.trim()) throw new Error("Garden name is required");
   if (!slug.trim()) throw new Error("Garden slug is required");
   if (!SLUG_REGEX.test(slug)) throw new Error("Slug must be lowercase letters, numbers, and hyphens only");
@@ -232,6 +253,88 @@ export async function updateGardenMember(
 }
 
 // ---------------------------------------------------------------------------
+// Manage anonymous public access
+// ---------------------------------------------------------------------------
+export async function generateGardenPublicLink(
+  gardenId: string,
+  userId: string,
+) {
+  await requireMembership(gardenId, userId, "owner");
+
+  const token = crypto.randomUUID().replaceAll("-", "");
+  const { data: existing } = await supabaseAdmin
+    .from("garden_public_links")
+    .select("id, can_upload, can_delete")
+    .eq("garden_id", gardenId)
+    .maybeSingle();
+
+  let publicLinkId: string;
+  if (existing) {
+    const { data, error } = await supabaseAdmin
+      .from("garden_public_links")
+      .update({ token, enabled: true })
+      .eq("id", existing.id)
+      .select(
+        "id, garden_id, token, enabled, can_upload, can_delete, created_by, created_at, updated_at",
+      )
+      .single();
+    if (error) throw error;
+    publicLinkId = data.id;
+
+    const { error: visitorError } = await supabaseAdmin
+      .from("garden_public_visitors")
+      .delete()
+      .eq("public_link_id", publicLinkId);
+    if (visitorError) throw visitorError;
+
+    updateTag(`garden-${gardenId}`);
+    return data;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("garden_public_links")
+    .insert({
+      garden_id: gardenId,
+      token,
+      enabled: true,
+      created_by: userId,
+    })
+    .select(
+      "id, garden_id, token, enabled, can_upload, can_delete, created_by, created_at, updated_at",
+    )
+    .single();
+
+  if (error) throw error;
+  updateTag(`garden-${gardenId}`);
+  return data;
+}
+
+export async function updateGardenPublicLink(
+  gardenId: string,
+  userId: string,
+  permissions: {
+    enabled?: boolean;
+    can_upload?: boolean;
+    can_delete?: boolean;
+  },
+) {
+  await requireMembership(gardenId, userId, "owner");
+
+  const { data, error } = await supabaseAdmin
+    .from("garden_public_links")
+    .update(permissions)
+    .eq("garden_id", gardenId)
+    .select(
+      "id, garden_id, token, enabled, can_upload, can_delete, created_by, created_at, updated_at",
+    )
+    .single();
+
+  if (error) throw error;
+  updateTag(`garden-${gardenId}`);
+  return data;
+}
+
+// ---------------------------------------------------------------------------
 // Remove a member from a garden
 // ---------------------------------------------------------------------------
 export async function removeGardenMember(
@@ -286,6 +389,46 @@ export async function deleteItem(
   });
 
   // Optimistic: invalidate cache immediately so UI reflects the delete
+  updateTag(`garden-${gardenId}`);
+}
+
+export async function deleteFiles(
+  itemIds: string[],
+  gardenId: string,
+  userId: string,
+) {
+  if (itemIds.length === 0) return;
+  await requireMembership(gardenId, userId, "delete");
+
+  const uniqueIds = [...new Set(itemIds)];
+  const { data: items, error } = await supabaseAdmin
+    .from("items")
+    .select("id, garden_id, type")
+    .in("id", uniqueIds);
+
+  if (error) throw error;
+  if (!items || items.length !== uniqueIds.length) {
+    throw new Error("One or more files could not be found");
+  }
+  if (
+    items.some(
+      (item) => item.garden_id !== gardenId || item.type !== "file",
+    )
+  ) {
+    throw new Error("Only files in this garden can be deleted");
+  }
+
+  const reqHeaders = await headers();
+  await Promise.all(
+    uniqueIds.map((itemId) =>
+      workflowClient.trigger({
+        url: `${getOrigin(reqHeaders)}/api/workflow/delete`,
+        body: { gardenId, itemId },
+        retries: 3,
+      }),
+    ),
+  );
+
   updateTag(`garden-${gardenId}`);
 }
 
@@ -418,6 +561,103 @@ export async function moveItem(
   updateTag(`garden-${gardenId}`);
 }
 
+export async function moveFiles(
+  itemIds: string[],
+  sourceGardenId: string,
+  targetGardenId: string,
+  targetParentId: string | null,
+  userId: string,
+) {
+  if (itemIds.length === 0) return;
+
+  await requireMembership(sourceGardenId, userId, "delete");
+  await requireMembership(targetGardenId, userId, "upload");
+
+  const uniqueIds = [...new Set(itemIds)];
+  const { data: items, error: itemError } = await supabaseAdmin
+    .from("items")
+    .select("id, name, garden_id, parent_id, type")
+    .in("id", uniqueIds);
+
+  if (itemError) throw itemError;
+  if (!items || items.length !== uniqueIds.length) {
+    throw new Error("One or more files could not be found");
+  }
+  if (
+    items.some(
+      (item) =>
+        item.garden_id !== sourceGardenId || item.type !== "file",
+    )
+  ) {
+    throw new Error("Only files in the source garden can be moved");
+  }
+  if (
+    sourceGardenId === targetGardenId &&
+    items.every((item) => item.parent_id === targetParentId)
+  ) {
+    throw new Error("The files are already in this folder");
+  }
+
+  let targetParentS3Key: string;
+  if (targetParentId) {
+    const { data: parent } = await supabaseAdmin
+      .from("items")
+      .select("id, garden_id, s3_key, type")
+      .eq("id", targetParentId)
+      .single();
+
+    if (
+      !parent ||
+      parent.garden_id !== targetGardenId ||
+      parent.type !== "folder"
+    ) {
+      throw new Error("Destination folder not found");
+    }
+    targetParentS3Key = parent.s3_key;
+  } else {
+    targetParentS3Key = s3Root(await getGardenSlug(targetGardenId));
+  }
+
+  let conflictQuery = supabaseAdmin
+    .from("items")
+    .select("name")
+    .eq("garden_id", targetGardenId)
+    .in(
+      "name",
+      items.map((item) => item.name),
+    );
+
+  conflictQuery = targetParentId
+    ? conflictQuery.eq("parent_id", targetParentId)
+    : conflictQuery.is("parent_id", null);
+
+  const { data: conflicts, error: conflictError } = await conflictQuery;
+  if (conflictError) throw conflictError;
+
+  if (conflicts?.length) {
+    const names = conflicts.map((item) => item.name).join(", ");
+    throw new Error(`Destination already contains: ${names}`);
+  }
+
+  const reqHeaders = await headers();
+  await workflowClient.trigger({
+    url: `${getOrigin(reqHeaders)}/api/workflow/move-files`,
+    body: {
+      sourceGardenId,
+      targetGardenId,
+      targetParentId,
+      targetParentS3Key,
+      itemIds: uniqueIds,
+    },
+    retries: 3,
+  });
+
+  updateTag(`garden-${sourceGardenId}`);
+  if (targetGardenId !== sourceGardenId) {
+    updateTag(`garden-${targetGardenId}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Create a folder
 // ---------------------------------------------------------------------------
@@ -466,16 +706,23 @@ export async function createShareLink(
 ): Promise<string> {
   await requireMembership(gardenId, userId, "upload");
 
-  // Verify item belongs to this garden
+  // Verify the item is a completed file in this garden.
   const { data: item } = await supabaseAdmin
     .from("items")
-    .select("garden_id")
+    .select("garden_id, status, type")
     .eq("id", itemId)
     .single();
 
-  if (!item || item.garden_id !== gardenId) throw new Error("Item not found");
+  if (
+    !item ||
+    item.garden_id !== gardenId ||
+    item.status !== "ready" ||
+    item.type !== "file"
+  ) {
+    throw new Error("Item not found");
+  }
 
-  const shortCode = crypto.randomUUID().substring(0, 8);
+  const shortCode = crypto.randomUUID().replaceAll("-", "");
 
   const { error } = await supabaseAdmin.from("shares").insert({
     short_code: shortCode,
@@ -493,5 +740,9 @@ export async function createShareLink(
 // Invalidate garden cache (called from client after upload success)
 // ---------------------------------------------------------------------------
 export async function invalidateGardenCache(gardenId: string) {
+  const userId = await requireCurrentUser();
+  const access = await getGardenAccessForUser(gardenId, userId);
+  if (!access) throw new Error("No access to this garden");
+
   updateTag(`garden-${gardenId}`);
 }

@@ -4,6 +4,19 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+function contentDisposition(filename: string): string {
+  const asciiName =
+    filename
+      .replace(/[\u0000-\u001f\u007f"\\]/g, "_")
+      .replace(/[^\x20-\x7e]/g, "_")
+      .slice(0, 180) || "download";
+  const encodedName = encodeURIComponent(filename).replace(/['()*]/g, (char) =>
+    `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+
+  return `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`;
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ code: string }> | { code: string } }
@@ -18,11 +31,25 @@ export async function GET(
   // Use admin client since share links are public (no user session required)
   const { data, error } = await supabaseAdmin
     .from("shares")
-    .select("expires_at, item:items(s3_key, name)")
+    .select("expires_at, item:items(s3_key, name, status, type)")
     .eq("short_code", code)
     .single();
 
-  if (error || !data?.item) {
+  const item = data?.item as unknown as
+    | {
+        s3_key: string;
+        name: string;
+        status: string;
+        type: string;
+      }
+    | undefined;
+
+  if (
+    error ||
+    !item ||
+    item.status !== "ready" ||
+    item.type !== "file"
+  ) {
     return new NextResponse(
       `<div style="font-family:sans-serif;text-align:center;padding:50px;">
         <h2>Link Not Found</h2>
@@ -43,14 +70,13 @@ export async function GET(
   }
 
   try {
-    const item = data.item as unknown as { s3_key: string; name: string };
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
       Key: item.s3_key,
-      ResponseContentDisposition: `attachment; filename="${item.name}"`,
+      ResponseContentDisposition: contentDisposition(item.name),
     });
 
-    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
     return NextResponse.redirect(signedUrl);
   } catch (err) {
     console.error("Failed to generate presigned download:", err);

@@ -40,12 +40,39 @@ export type GardenMember = {
   role: "owner" | "member";
 };
 
+export type GardenPublicLink = {
+  id: string;
+  garden_id: string;
+  token: string;
+  enabled: boolean;
+  can_upload: boolean;
+  can_delete: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MoveTreeFolder = {
+  id: string;
+  name: string;
+  children: MoveTreeFolder[];
+};
+
+export type MoveTreeGarden = {
+  id: string;
+  slug: string;
+  name: string;
+  can_upload: boolean;
+  folders: MoveTreeFolder[];
+};
+
 // ---------------------------------------------------------------------------
 // Cached: get items in a folder within a garden
 // ---------------------------------------------------------------------------
 export async function getItems(
   gardenId: string,
-  parentId: string | null
+  parentId: string | null,
+  searchQuery?: string
 ): Promise<Item[]> {
   "use cache";
   cacheLife("minutes");
@@ -59,7 +86,12 @@ export async function getItems(
     .order("type", { ascending: true }) // folders first
     .order("name");
 
-  if (parentId) {
+  if (searchQuery) {
+    query = query.textSearch("fts", `'${searchQuery}'`, {
+      type: "websearch",
+      config: "english"
+    });
+  } else if (parentId) {
     query = query.eq("parent_id", parentId);
   } else {
     query = query.is("parent_id", null);
@@ -70,9 +102,64 @@ export async function getItems(
 }
 
 // ---------------------------------------------------------------------------
+// Cached: search across all accessible gardens
+// ---------------------------------------------------------------------------
+export type GlobalSearchResult = Item & {
+  gardens: {
+    name: string;
+    slug: string;
+  };
+  permissions: {
+    can_upload: boolean;
+    can_delete: boolean;
+  };
+};
+
+export async function searchAllItems(
+  userId: string,
+  searchQuery: string
+): Promise<GlobalSearchResult[]> {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(`user-search-${userId}`);
+
+  const gardens = await getGardensForUser(userId);
+  const gardenIds = gardens.map((g) => g.id);
+
+  if (!gardenIds.length || !searchQuery) return [];
+
+  const { data } = await supabaseAdmin
+    .from("items")
+    .select("id, garden_id, parent_id, name, type, s3_key, thumbnail_key, mime_type, created_at, gardens(name, slug)")
+    .in("garden_id", gardenIds)
+    .eq("status", "ready")
+    .textSearch("fts", `'${searchQuery}'`, {
+      type: "websearch",
+      config: "english",
+    })
+    .order("type", { ascending: true }) // folders first
+    .order("name");
+
+  // Map permissions from the fetched gardens to the results
+  const resultsWithPermissions = (data as any[] || []).map((item) => {
+    const gardenData = gardens.find((g) => g.id === item.garden_id);
+    return {
+      ...item,
+      permissions: {
+        can_upload: gardenData?.can_upload || false,
+        can_delete: gardenData?.can_delete || false,
+      },
+    };
+  });
+
+  return resultsWithPermissions as GlobalSearchResult[];
+}
+
+// ---------------------------------------------------------------------------
 // Cached: get breadcrumbs by walking up the parent chain
 // ---------------------------------------------------------------------------
 export async function getBreadcrumbs(
+  gardenId: string,
   parentId: string | null
 ): Promise<BreadcrumbItem[]> {
   "use cache";
@@ -89,6 +176,7 @@ export async function getBreadcrumbs(
       .from("items")
       .select("id, name, parent_id")
       .eq("id", currentId)
+      .eq("garden_id", gardenId)
       .single();
 
     if (!data) break;
@@ -125,6 +213,89 @@ export async function getGardensForUser(
       can_delete: row.can_delete,
     };
   });
+}
+
+export async function getMoveTreeForUser(
+  userId: string,
+): Promise<MoveTreeGarden[]> {
+  const { data: memberships } = await supabaseAdmin
+    .from("garden_members")
+    .select("can_upload, role, gardens(id, slug, name)")
+    .eq("user_id", userId);
+
+  if (!memberships?.length) return [];
+
+  const gardens = memberships
+    .map((membership) => {
+      const garden = membership.gardens as unknown as {
+        id: string;
+        slug: string;
+        name: string;
+      } | null;
+      if (!garden) return null;
+      return {
+        ...garden,
+        can_upload:
+          membership.role === "owner" || Boolean(membership.can_upload),
+      };
+    })
+    .filter(
+      (
+        garden,
+      ): garden is {
+        id: string;
+        slug: string;
+        name: string;
+        can_upload: boolean;
+      } => garden !== null,
+    );
+
+  const gardenIds = gardens.map((garden) => garden.id);
+  const { data: folders } = await supabaseAdmin
+    .from("items")
+    .select("id, garden_id, parent_id, name")
+    .in("garden_id", gardenIds)
+    .eq("type", "folder")
+    .eq("status", "ready")
+    .order("name");
+
+  const foldersByGarden = new Map<string, MoveTreeFolder[]>();
+
+  for (const garden of gardens) {
+    const gardenFolders = (folders ?? []).filter(
+      (folder) => folder.garden_id === garden.id,
+    );
+    const nodes = new Map<string, MoveTreeFolder>();
+    const roots: MoveTreeFolder[] = [];
+
+    for (const folder of gardenFolders) {
+      nodes.set(folder.id, {
+        id: folder.id,
+        name: folder.name,
+        children: [],
+      });
+    }
+
+    for (const folder of gardenFolders) {
+      const node = nodes.get(folder.id);
+      if (!node) continue;
+      const parent = folder.parent_id ? nodes.get(folder.parent_id) : null;
+      if (parent) {
+        parent.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+
+    foldersByGarden.set(garden.id, roots);
+  }
+
+  return gardens
+    .map((garden) => ({
+      ...garden,
+      folders: foldersByGarden.get(garden.id) ?? [],
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +401,20 @@ export async function getGardenMembers(
   return enriched;
 }
 
+export async function getGardenPublicLink(
+  gardenId: string,
+): Promise<GardenPublicLink | null> {
+  const { data } = await supabaseAdmin
+    .from("garden_public_links")
+    .select(
+      "id, garden_id, token, enabled, can_upload, can_delete, created_by, created_at, updated_at",
+    )
+    .eq("garden_id", gardenId)
+    .maybeSingle();
+
+  return (data as GardenPublicLink) || null;
+}
+
 // ---------------------------------------------------------------------------
 // Helper: get garden details by id
 // ---------------------------------------------------------------------------
@@ -294,5 +479,3 @@ export async function buildS3Key(
   if (!parent) throw new Error("Parent folder not found");
   return `${parent.s3_key}${filename}`;
 }
-
-

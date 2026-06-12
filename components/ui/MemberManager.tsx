@@ -4,17 +4,26 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   addGardenMember,
+  generateGardenPublicLink,
   updateGardenMember,
+  updateGardenPublicLink,
   removeGardenMember,
 } from "@/lib/actions";
-import type { GardenMember } from "@/lib/data";
-import { Add, Trash, Close } from "@/components/icons/liquid-glass";
+import type { GardenMember, GardenPublicLink } from "@/lib/data";
+import {
+  Add,
+  Trash,
+  Close,
+  Refresh,
+  Share,
+} from "@/components/icons/liquid-glass";
 
 interface MemberManagerProps {
   gardenId: string;
   members: (GardenMember & { email: string })[];
   userId: string;
   gardenName: string;
+  publicLink: GardenPublicLink | null;
 }
 
 export function MemberManager({
@@ -22,6 +31,7 @@ export function MemberManager({
   members,
   userId,
   gardenName,
+  publicLink,
 }: MemberManagerProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -42,6 +52,10 @@ export function MemberManager({
 
   // Toggle permission loading state
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [publicAccess, setPublicAccess] =
+    useState<GardenPublicLink | null>(publicLink);
+  const [publicLoading, setPublicLoading] = useState(false);
+  const [publicMessage, setPublicMessage] = useState("");
 
   const handleAddMember = async () => {
     if (!email.trim()) return;
@@ -98,7 +112,48 @@ export function MemberManager({
     }
   };
 
-  const ownerCount = members.filter((m) => m.role === "owner").length;
+  const handleGeneratePublicLink = async () => {
+    setPublicLoading(true);
+    setPublicMessage("");
+    try {
+      const link = await generateGardenPublicLink(gardenId, userId);
+      setPublicAccess(link as GardenPublicLink);
+      const url = `${window.location.origin}/public/g/${link.token}`;
+      await navigator.clipboard.writeText(url);
+      setPublicMessage("Public link copied");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to generate link");
+    } finally {
+      setPublicLoading(false);
+    }
+  };
+
+  const handlePublicToggle = async (
+    field: "enabled" | "can_upload" | "can_delete",
+    currentValue: boolean,
+  ) => {
+    if (!publicAccess) return;
+    setTogglingId(`public-${field}`);
+    try {
+      const link = await updateGardenPublicLink(gardenId, userId, {
+        [field]: !currentValue,
+      });
+      setPublicAccess(link as GardenPublicLink);
+    } catch (err) {
+      alert(
+        err instanceof Error ? err.message : "Failed to update public access",
+      );
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const handleCopyPublicLink = async () => {
+    if (!publicAccess) return;
+    const url = `${window.location.origin}/public/g/${publicAccess.token}`;
+    await navigator.clipboard.writeText(url);
+    setPublicMessage("Public link copied");
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -126,12 +181,128 @@ export function MemberManager({
             <tr className="bg-base-200/50">
               <th>Email</th>
               <th>Role</th>
+              <th className="text-center">View</th>
               <th className="text-center">Upload</th>
               <th className="text-center">Delete</th>
               <th className="text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
+            <tr className="bg-info/5 hover:bg-info/10">
+              <td>
+                <div className="flex items-center gap-2">
+                  <div className="avatar placeholder">
+                    <div className="bg-info text-info-content w-8 rounded-full">
+                      <Share size={14} />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="font-medium text-sm">Public</span>
+                    <p className="text-xs text-base-content/45">
+                      Anyone with the link
+                    </p>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <span className="badge badge-sm badge-info">public</span>
+              </td>
+              <td className="text-center">
+                <input
+                  type="checkbox"
+                  className="toggle toggle-sm toggle-info"
+                  checked={publicAccess?.enabled ?? false}
+                  disabled={
+                    !publicAccess ||
+                    publicLoading ||
+                    togglingId === "public-enabled"
+                  }
+                  onChange={() =>
+                    handlePublicToggle(
+                      "enabled",
+                      publicAccess?.enabled ?? false,
+                    )
+                  }
+                  title="Allow public viewing"
+                />
+              </td>
+              <td className="text-center">
+                <input
+                  type="checkbox"
+                  className="toggle toggle-sm toggle-success"
+                  checked={publicAccess?.can_upload ?? false}
+                  disabled={
+                    !publicAccess ||
+                    publicLoading ||
+                    togglingId === "public-can_upload"
+                  }
+                  onChange={() =>
+                    handlePublicToggle(
+                      "can_upload",
+                      publicAccess?.can_upload ?? false,
+                    )
+                  }
+                  title="Allow public uploads"
+                />
+              </td>
+              <td className="text-center">
+                <input
+                  type="checkbox"
+                  className="toggle toggle-sm toggle-error"
+                  checked={publicAccess?.can_delete ?? false}
+                  disabled={
+                    !publicAccess ||
+                    publicLoading ||
+                    togglingId === "public-can_delete"
+                  }
+                  onChange={() =>
+                    handlePublicToggle(
+                      "can_delete",
+                      publicAccess?.can_delete ?? false,
+                    )
+                  }
+                  title="Allow public deletion"
+                />
+              </td>
+              <td className="text-right">
+                {publicAccess ? (
+                  <div className="inline-flex items-center gap-1">
+                    <button
+                      className="btn btn-ghost btn-xs"
+                      onClick={handleCopyPublicLink}
+                      title="Copy public link"
+                    >
+                      <Share size={14} />
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-xs"
+                      onClick={handleGeneratePublicLink}
+                      disabled={publicLoading}
+                      title="Generate a new link"
+                    >
+                      {publicLoading ? (
+                        <span className="loading loading-spinner loading-xs" />
+                      ) : (
+                        <Refresh size={14} />
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="btn btn-info btn-xs"
+                    onClick={handleGeneratePublicLink}
+                    disabled={publicLoading}
+                  >
+                    {publicLoading ? (
+                      <span className="loading loading-spinner loading-xs" />
+                    ) : (
+                      <Share size={14} />
+                    )}
+                    Generate link
+                  </button>
+                )}
+              </td>
+            </tr>
             {members.map((member) => {
               const isOwner = member.role === "owner";
               const isSelf = member.user_id === userId;
@@ -167,6 +338,15 @@ export function MemberManager({
                     >
                       {member.role}
                     </span>
+                  </td>
+                  <td className="text-center">
+                    <input
+                      type="checkbox"
+                      className="toggle toggle-sm toggle-info"
+                      checked
+                      disabled
+                      title="Members can always view"
+                    />
                   </td>
                   <td className="text-center">
                     <input
@@ -236,8 +416,17 @@ export function MemberManager({
       </div>
 
       <p className="text-xs text-base-content/40">
-        Owners always have full permissions. Toggle permissions for members only.
+        Owners always have full permissions. Generating a new public link
+        revokes the previous link and its active visitors.
       </p>
+
+      {publicMessage && (
+        <div className="toast toast-end z-50">
+          <div className="alert alert-success text-sm">
+            <span>{publicMessage}</span>
+          </div>
+        </div>
+      )}
 
       {/* Add Member Modal */}
       {showAddModal && (

@@ -3,18 +3,30 @@ const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
 (async () => {
   try {
+    const required = [
+      "S3_ACCESS_KEY",
+      "S3_SECRET",
+      "S3_ENDPOINT",
+      "S3_REGION",
+      "S3_BUCKET_NAME",
+    ];
+    const missing = required.filter((name) => !process.env[name]);
+    if (missing.length > 0) {
+      throw new Error(`Missing S3 environment variables: ${missing.join(", ")}`);
+    }
+
     const s3Client = new S3Client({
-      endpoint: "https://s3.eu-central-003.backblazeb2.com",
-      region: "eu-central-003",
+      endpoint: `https://${process.env.S3_ENDPOINT}`,
+      region: process.env.S3_REGION,
       credentials: {
-        accessKeyId: "003a67ed5c4f7160000000009",
-        secretAccessKey: "K003z4nuBSKM26ahyMMb0eSbb+DMz/Y",
+        accessKeyId: process.env.S3_ACCESS_KEY,
+        secretAccessKey: process.env.S3_SECRET,
       },
       forcePathStyle: false,
     });
 
     const command = new PutObjectCommand({
-      Bucket: "hortus",
+      Bucket: process.env.S3_BUCKET_NAME,
       Key: "Images/test-direct-upload.txt",
       ContentType: "text/plain",
     });

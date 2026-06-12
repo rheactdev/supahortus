@@ -1,6 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Navbar } from "@/components/ui/navbar";
+import { getAdminUserId } from "@/lib/admin-access";
 
 export const unstable_instant = false;
 
@@ -9,11 +9,9 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-
-  if (!data?.claims) {
-    return redirect("/auth/login");
+  const adminUserId = await getAdminUserId();
+  if (!adminUserId) {
+    redirect("/my-gardens");
   }
 
   return (

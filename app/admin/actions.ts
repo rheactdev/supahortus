@@ -1,12 +1,28 @@
 "use server";
 
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
-import { ListObjectsV2Command } from "@aws-sdk/client-s3";
+import {
+  ListObjectsV2Command,
+  type ListObjectsV2CommandOutput,
+} from "@aws-sdk/client-s3";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { Client } from "@upstash/qstash";
+import { requireAdmin } from "@/lib/admin-access";
+
+type SyncedItem = {
+  id: string;
+  garden_id: string;
+  parent_id: string | null;
+  name?: string;
+  type?: "file" | "folder";
+  s3_key: string;
+  status?: "ready";
+};
 
 export async function syncS3ToDb() {
+  await requireAdmin();
+
   // 1. Fetch all gardens to map slug -> id
   const { data: gardens, error: gardenError } = await supabaseAdmin
     .from("gardens")
@@ -26,12 +42,13 @@ export async function syncS3ToDb() {
   const s3Keys: string[] = [];
 
   do {
-    const command = new ListObjectsV2Command({
-      Bucket: BUCKET_NAME,
-      Prefix: "hortus/",
-      ContinuationToken: continuationToken,
-    });
-    const response: any = await s3Client.send(command);
+    const response: ListObjectsV2CommandOutput = await s3Client.send(
+      new ListObjectsV2Command({
+        Bucket: BUCKET_NAME,
+        Prefix: "hortus/",
+        ContinuationToken: continuationToken,
+      }),
+    );
     if (response.Contents) {
       for (const item of response.Contents) {
         if (item.Key) s3Keys.push(item.Key);
@@ -48,12 +65,12 @@ export async function syncS3ToDb() {
   
   if (itemsError) throw new Error("Failed to fetch existing items");
 
-  const existingMap = new Map<string, any>();
+  const existingMap = new Map<string, SyncedItem>();
   for (const item of existingItems || []) {
     existingMap.set(item.s3_key, item);
   }
 
-  const newItemsToInsert: any[] = [];
+  const newItemsToInsert: SyncedItem[] = [];
   
   // Sort S3 keys so we process shorter paths (parents) before longer ones (children)
   // This ensures parent folders are created before files
@@ -107,7 +124,7 @@ export async function syncS3ToDb() {
 
     if (!existingMap.has(s3Key)) {
       const id = crypto.randomUUID();
-      const newItem = {
+      const newItem: SyncedItem = {
         id,
         garden_id: gardenId,
         parent_id: currentParentId,
@@ -144,6 +161,8 @@ export async function syncS3ToDb() {
 }
 
 export async function generateMissingThumbnails() {
+  await requireAdmin();
+
   const qstash = new Client({ token: process.env.QSTASH_TOKEN || "" });
   
   const { data: items, error } = await supabaseAdmin

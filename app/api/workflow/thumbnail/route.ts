@@ -2,6 +2,7 @@ import { serve } from "@upstash/workflow/nextjs";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getAppBaseUrl } from "@/lib/app-url";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 type ThumbnailPayload = {
   gardenId: string;
@@ -63,11 +64,8 @@ export const { POST } = serve<ThumbnailPayload>(
     });
 
     // Revalidate cache
-    const baseUrl = process.env.UPSTASH_WORKFLOW_URL || 
-      (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"));
     await context.call("revalidate-cache", {
-      url: `${baseUrl}/api/revalidate?tag=garden-${gardenId}`,
+      url: `${getAppBaseUrl()}/api/revalidate?tag=garden-${gardenId}`,
       method: "POST",
       headers: process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
         "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET,

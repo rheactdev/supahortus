@@ -7,6 +7,7 @@ import {
   Share,
   MenuDots,
   DocumentIcon,
+  Checkmark,
 } from "@/components/icons/liquid-glass";
 import { deleteItem, renameItem, createShareLink } from "@/lib/actions";
 import type { Item } from "@/lib/data";
@@ -17,8 +18,8 @@ import {
   EXTENSION_ICONS,
   LIQUID_GLASS_COLOR,
   ExtensionIconProps,
-  LIQUID_GLASS,
 } from "../icons/constants";
+import { PdfThumbnail } from "./PdfThumbnail";
 
 interface FileCardProps {
   item: Item;
@@ -28,6 +29,11 @@ interface FileCardProps {
   folderId: string | null;
   canUpload: boolean;
   canDelete: boolean;
+  allowShareLinks?: boolean;
+  isSelected?: boolean;
+  selectionEnabled?: boolean;
+  onToggleSelection?: (itemId: string) => void;
+  onPreview?: (item: Item) => void;
   onRefresh: () => void;
   viewConfig: {
     cardSize: number;
@@ -50,6 +56,11 @@ export const FileCard = memo(function FileCard({
   userId,
   canUpload,
   canDelete,
+  allowShareLinks = true,
+  isSelected = false,
+  selectionEnabled = false,
+  onToggleSelection,
+  onPreview,
   onRefresh,
   viewConfig,
 }: FileCardProps) {
@@ -76,6 +87,7 @@ export const FileCard = memo(function FileCard({
 
   const isImage =
     item.mime_type?.startsWith("image/") || IMAGE_EXTENSIONS.has(ext);
+  const isPdf = item.mime_type === "application/pdf" || ext === "pdf";
 
   // Easily add more extension -> icon mappings here
   // const EXTENSION_ICONS: Record<string, string> = {
@@ -159,9 +171,51 @@ export const FileCard = memo(function FileCard({
     setDropdownOpen(false);
   };
 
+  const handleCardClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (
+      !selectionEnabled ||
+      (!event.metaKey && !event.ctrlKey) ||
+      !onToggleSelection
+    ) {
+      return;
+    }
+
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, input, select, textarea")) return;
+
+    event.preventDefault();
+    onToggleSelection(item.id);
+  };
+
+  const handlePreviewClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (
+      selectionEnabled &&
+      (event.metaKey || event.ctrlKey) &&
+      onToggleSelection
+    ) {
+      onToggleSelection(item.id);
+      return;
+    }
+    onPreview?.(item);
+  };
+
   return (
     <>
-      <div className="card bg-base-100 hover:bg-base-200 border border-base-content/10 hover:border-primary/30 group overflow-hidden relative h-full">
+      <div
+        className={`card bg-base-100 hover:bg-base-200 border group overflow-hidden relative h-full select-none ${
+          isSelected
+            ? "border-primary ring-2 ring-primary/35"
+            : "border-base-content/10 hover:border-primary/30"
+        }`}
+        aria-selected={isSelected}
+        onClick={handleCardClick}
+      >
+        {isSelected && (
+          <span className="absolute top-10 left-2 z-10 size-6 rounded-full bg-primary text-primary-content flex items-center justify-center shadow-sm">
+            <Checkmark size={14} />
+          </span>
+        )}
         <div className="card-body p-0 flex flex-col h-full relative gap-0">
           {/* Metadata Top Bar */}
           <div className="p-2 pl-3 flex items-center gap-2 bg-base-200/50 border-b border-base-content/5 group-hover:bg-base-300/50 transition-colors">
@@ -197,11 +251,13 @@ export const FileCard = memo(function FileCard({
                   <MenuDots size={16} />
                 </DropdownTrigger>
                 <DropdownContent className="w-48 z-[20]">
-                  <li>
-                    <button onClick={handleShare}>
-                      <Share size={16} className="text-info" /> Share Link
-                    </button>
-                  </li>
+                  {allowShareLinks && (
+                    <li>
+                      <button onClick={handleShare}>
+                        <Share size={16} className="text-info" /> Share Link
+                      </button>
+                    </li>
+                  )}
                   {canUpload && (
                     <li>
                       <button
@@ -221,7 +277,7 @@ export const FileCard = memo(function FileCard({
                       <Download size={16} className="text-secondary" /> Download
                     </button>
                   </li>
-                  {isImage && (
+                  {isImage && canUpload && (
                     <li>
                       <button
                         onClick={handleRegenerateThumbnail}
@@ -255,11 +311,20 @@ export const FileCard = memo(function FileCard({
           </div>
 
           {/* Visual Preview Area */}
-          <div
-            className="w-full bg-base-200/20 relative flex items-center justify-center flex-1"
+          <button
+            type="button"
+            className="w-full bg-base-200/20 relative flex items-center justify-center flex-1 overflow-hidden cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
             style={{ aspectRatio: viewConfig.aspectRatio }}
+            onClick={handlePreviewClick}
+            aria-label={`Preview ${item.name}`}
           >
-            {isImage && thumbnailUrl ? (
+            {isPdf ? (
+              <PdfThumbnail
+                itemId={item.id}
+                name={item.name}
+                fit={viewConfig.imageFit}
+              />
+            ) : isImage && thumbnailUrl ? (
               <Image
                 src={thumbnailUrl}
                 alt={item.name}
@@ -284,7 +349,7 @@ export const FileCard = memo(function FileCard({
                 /> */}
               </div>
             )}
-          </div>
+          </button>
         </div>
       </div>
 

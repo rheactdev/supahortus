@@ -61,36 +61,45 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
       return { uploadId: data.uploadId, key: data.key };
     },
 
-    async signPart(_file, { uploadId, key, partNumber }) {
+    async signPart(file, { uploadId, key, partNumber }) {
+      const itemId = itemIdMap.current.get(file.id) ?? "";
       const params = new URLSearchParams({
         uploadId,
         key,
         partNumber: String(partNumber),
+        itemId,
       });
       const res = await fetch(`/api/storage/multipart/sign-part?${params}`);
       return await res.json();
     },
 
-    async listParts(_file, { uploadId, key }) {
-      const params = new URLSearchParams({ uploadId: uploadId ?? "", key });
+    async listParts(file, { uploadId, key }) {
+      const itemId = itemIdMap.current.get(file.id) ?? "";
+      const params = new URLSearchParams({
+        uploadId: uploadId ?? "",
+        key,
+        itemId,
+      });
       const res = await fetch(`/api/storage/multipart/list-parts?${params}`);
       return await res.json();
     },
 
-    async completeMultipartUpload(_file, { uploadId, key, parts }) {
+    async completeMultipartUpload(file, { uploadId, key, parts }) {
+      const itemId = itemIdMap.current.get(file.id);
       await fetch("/api/storage/multipart/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadId, key, parts }),
+        body: JSON.stringify({ uploadId, key, parts, itemId }),
       });
       return {};
     },
 
-    async abortMultipartUpload(_file, { uploadId, key }) {
+    async abortMultipartUpload(file, { uploadId, key }) {
+      const itemId = itemIdMap.current.get(file.id);
       await fetch("/api/storage/multipart/abort", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadId, key }),
+        body: JSON.stringify({ uploadId, key, itemId }),
       });
     },
   }).use(ThumbnailGenerator, {

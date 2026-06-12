@@ -26,7 +26,9 @@ export async function GET(request: Request) {
     // RLS enforces access — only garden members can SELECT items
     const { data: item, error: fetchError } = await supabase
       .from("items")
-      .select("s3_key, name")
+      .select("s3_key, name, mime_type")
+      .eq("type", "file")
+      .eq("status", "ready")
       .eq("id", id)
       .single();
 
@@ -37,10 +39,19 @@ export async function GET(request: Request) {
     const commandConfig: GetObjectCommandInput = {
       Bucket: BUCKET_NAME,
       Key: item.s3_key,
+      ResponseContentType: item.mime_type || "application/octet-stream",
     };
 
     if (searchParams.get("download") === "true") {
-      commandConfig.ResponseContentDisposition = `attachment; filename="${item.name}"`;
+      commandConfig.ResponseContentDisposition = contentDisposition(
+        "attachment",
+        item.name,
+      );
+    } else {
+      commandConfig.ResponseContentDisposition = contentDisposition(
+        "inline",
+        item.name,
+      );
     }
 
     const command = new GetObjectCommand(commandConfig);
@@ -58,4 +69,9 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function contentDisposition(disposition: "inline" | "attachment", name: string) {
+  const asciiName = name.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+  return `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }

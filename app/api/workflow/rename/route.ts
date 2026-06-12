@@ -5,6 +5,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getAppBaseUrl } from "@/lib/app-url";
 
 type RenamePayload = {
   gardenId: string;
@@ -105,7 +106,7 @@ export const { POST } = serve<RenamePayload>(
 
     // Step 4: Revalidate cache
     await context.call("revalidate-cache", {
-      url: `${process.env.UPSTASH_WORKFLOW_URL}/api/revalidate?tag=garden-${gardenId}`,
+      url: `${getAppBaseUrl()}/api/revalidate?tag=garden-${gardenId}`,
       method: "POST",
     });
   },

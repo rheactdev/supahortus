@@ -12,9 +12,9 @@ export async function AuthButton() {
   }
 
   return (
-    <li>
+    <li className="shrink-0 whitespace-nowrap">
       <details className="">
-        <summary tabIndex={0}>{user.email}</summary>
+        <summary tabIndex={0} className="whitespace-nowrap">{user.email}</summary>
         <ul tabIndex={-1} className="bg-base-300 rounded-t-none p-2 right-0">
           <li><LogoutButton /></li>
         </ul>

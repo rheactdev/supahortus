@@ -32,6 +32,11 @@ NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_public_anon_key
 NEXT_PRIVATE_SUPABASE_SECRET_KEY=your_secret_key
 
+# Comma-separated Supabase user UUIDs allowed to access /admin.
+# As an alternative, set app_metadata.role = "admin" or
+# app_metadata.is_admin = true with the Supabase Admin API.
+ADMIN_USER_IDS=your_supabase_user_uuid
+
 # S3 Configuration
 S3_ACCESS_KEY_ID=your_access_key
 S3_SECRET_ACCESS_KEY=your_secret_key
