@@ -1,10 +1,25 @@
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getGardensForUser } from "@/lib/data";
 import Link from "next/link";
 import { Folder } from "@/components/icons/liquid-glass";
 import { CreateGardenDialog } from "@/components/ui/CreateGardenDialog";
 
-export default async function DashboardPage() {
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center p-12" role="status" aria-label="Loading gardens">
+          <span className="loading loading-ring text-primary loading-lg" />
+        </div>
+      }
+    >
+      <GardensDashboard />
+    </Suspense>
+  );
+}
+
+async function GardensDashboard() {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
