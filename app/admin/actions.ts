@@ -10,6 +10,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireAdmin } from "@/lib/admin-access";
 import { enqueueGardenCleanup } from "@/lib/garden-cleanup";
+import { queueThumbnail } from "@/lib/thumbnail-workflow";
 
 type SyncedItem = {
   id: string;
@@ -167,6 +168,36 @@ export async function syncS3ToDb() {
     success: true,
     addedCount: newItemsToInsert.length,
     scannedCount: s3Keys.length
+  };
+}
+
+export async function queueMissingThumbnails(afterId: string | null) {
+  await requireAdmin();
+
+  const batchSize = 25;
+  const query = supabaseAdmin
+    .from("items")
+    .select("id, garden_id, name")
+    .eq("type", "file")
+    .eq("status", "ready")
+    .is("thumbnail_key", null)
+    .order("id")
+    .limit(batchSize);
+  const { data: items, error } = await (afterId ? query.gt("id", afterId) : query);
+  if (error || !items) throw new Error("Could not load files for thumbnail generation.");
+
+  const results = await Promise.allSettled(
+    items.map((item) => queueThumbnail(
+      { gardenId: item.garden_id, itemId: item.id },
+      item.name,
+      null,
+    )),
+  );
+
+  return {
+    nextCursor: items.length === batchSize ? items[batchSize - 1].id : null,
+    queued: results.filter((result) => result.status === "fulfilled" && result.value).length,
+    failed: results.filter((result) => result.status === "rejected").length,
   };
 }
 
