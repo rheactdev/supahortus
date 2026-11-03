@@ -18,6 +18,7 @@ export function GardenSettings({ garden, userId, storagePrefix }: GardenSettings
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [copyFeedback, setCopyFeedback] = useState<{ message: string; failed: boolean } | null>(null);
   const canSave = Boolean(name.trim()) && name.trim() !== savedName && !pending;
   const details = [
     { label: "Slug", value: garden.slug },
@@ -53,73 +54,75 @@ export function GardenSettings({ garden, userId, storagePrefix }: GardenSettings
     });
   }
 
-  return (
-    <section className="mt-4">
-      <div>
-        <form onSubmit={handleRename} className="max-w-xl">
-          <fieldset className="fieldset">
-            <label htmlFor="garden-name" className="label">Garden Name</label>
-            <div className="join">
-              <input
-                id="garden-name"
-                className="input join-item"
-                value={name}
-                disabled={pending}
-                onChange={(event) => {
-                  setName(event.target.value);
-                  setStatus("");
-                  setError("");
-                }}
-                required
-              />
-              <button type="submit" className="btn join-item" disabled={!canSave}>
-                {pending ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </fieldset>
-          {status && <p role="status" className="mt-2 text-sm text-success">{status}</p>}
-          {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
-        </form>
-        <ul className="list">
-          {/* <li className="list-row">
-            <label htmlFor="garden-name" className="w-30 text-xs uppercase font-semibold opacity-60">Garden Name</label>
-            <div className="join">
+  async function copyDetail(label: string, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyFeedback({ message: label + " copied.", failed: false });
+    } catch {
+      setCopyFeedback({ message: "Could not copy " + label.toLowerCase() + ". Select the value to copy it manually.", failed: true });
+    }
+  }
 
-              <input
-                id="garden-name"
-                className="input join-item"
-                value={name}
-                disabled={pending}
-                onChange={(event) => {
-                  setName(event.target.value);
-                  setStatus("");
-                  setError("");
-                }}
-                required
-              />
-              <button type="submit" className="btn join-item" disabled={!canSave}>
-                {pending ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </li> */}
-          {details.map(({ label, value }) => (
-            <li className="list-row">
-              <p className="w-30 text-xs uppercase font-semibold opacity-60">{label}</p>
-              <p>{value}</p>
-            </li>
-          ))}
-        </ul>
-        {/* <dl className="grid min-w-0 gap-x-6 gap-y-3 sm:grid-cols-2">
-          {details.map(({ label, value }) => (
-            <div key={label} className="min-w-0">
-              <dt className="text-sm font-medium">{label}</dt>
-              <dd className="mt-1 select-text wrap-anywhere text-sm text-base-content/75">
-                {label === "Created" ? value : <code>{value}</code>}
-              </dd>
-            </div>
-          ))}
-        </dl> */}
-      </div>
+  return (
+    <section aria-label="Garden details" className="mb-10 mt-12 w-full max-w-[35rem]">
+      <form onSubmit={handleRename}>
+        <label htmlFor="garden-name" className="mb-2 block text-sm text-base-content/70">
+          Garden name
+        </label>
+        <div className="flex items-center gap-3">
+          <input
+            id="garden-name"
+            className="input h-11 min-w-0 flex-1 rounded-lg border-base-content/20 bg-transparent"
+            value={name}
+            disabled={pending}
+            onChange={(event) => {
+              setName(event.target.value);
+              setStatus("");
+              setError("");
+            }}
+            required
+          />
+          <button type="submit" className="btn h-11 shrink-0 rounded-lg px-5" disabled={!canSave}>
+            {pending ? "Saving…" : "Save"}
+          </button>
+        </div>
+        {status && <p role="status" className="mt-2 text-sm text-success">{status}</p>}
+        {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
+      </form>
+
+      <dl className="mt-9 space-y-2 text-sm">
+        {details.map(({ label, value }) => (
+          <div key={label} className="grid min-h-6 grid-cols-[6rem_minmax(0,1fr)] items-baseline gap-x-3 sm:grid-cols-[9.5rem_minmax(0,1fr)]">
+            <dt className="text-base-content/70">{label}</dt>
+            <dd className="flex min-w-0 items-baseline gap-2.5">
+              {label === "Created" ? (
+                <span>{value}</span>
+              ) : (
+                <>
+                  <code className="min-w-0 select-text wrap-anywhere">{value}</code>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-square btn-xs shrink-0 self-center text-base-content/70"
+                    aria-label={"Copy " + label.toLowerCase()}
+                    title={"Copy " + label.toLowerCase()}
+                    onClick={() => void copyDetail(label, value)}
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" className="size-4">
+                      <rect x="8" y="8" width="12" height="12" rx="2" />
+                      <path strokeLinecap="round" d="M4 15V6a2 2 0 0 1 2-2h9" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {copyFeedback && (
+        <p role={copyFeedback.failed ? "alert" : "status"} className="mt-2 text-sm text-base-content/75">
+          {copyFeedback.message}
+        </p>
+      )}
     </section>
   );
 }
