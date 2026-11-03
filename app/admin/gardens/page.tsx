@@ -23,12 +23,6 @@ async function AdminGardens() {
   return (
     <div className="w-full h-full flex flex-col">
       <div className="flex justify-between items-end mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Manage Gardens</h1>
-          <p className="text-base-content/60 mt-1">
-            Select a garden to manage settings and members.
-          </p>
-        </div>
         <Link href="/admin/create-garden" className="btn btn-primary btn-sm">
           + New Garden
         </Link>

@@ -3,6 +3,7 @@ import { Navbar } from "@/components/ui/navbar";
 import { getAdminUserId } from "@/lib/admin-access";
 import { Suspense, type ReactNode } from "react";
 import { RouteLoading } from "@/components/ui/RouteLoading";
+import { AdminNavigation } from "./AdminNavigation";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
@@ -21,9 +22,12 @@ async function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-base-100 flex flex-col text-base-content antialiased selection:bg-primary selection:text-primary-content">
       <Navbar />
-      <main className="flex-1 w-full p-8 pt-6 mx-auto flex flex-col gap-6 h-auto">
-        {children}
-      </main>
+      <div className="flex flex-1 flex-col lg:flex-row">
+        <AdminNavigation />
+        <main className="flex min-w-0 flex-1 flex-col gap-6 px-4 py-6 sm:px-8">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

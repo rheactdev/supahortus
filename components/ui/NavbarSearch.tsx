@@ -30,16 +30,17 @@ function NavbarSearchInner() {
   }, [searchTerm, searchParams, router]);
 
   return (
-    <label className="input input-sm flex w-full items-center gap-2 border-base-content/20">
-      <svg className="h-[1em] opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+    <label className="input input-sm w-full">
+      <svg className="h-[1em] opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
         <g strokeLinejoin="round" strokeLinecap="round" strokeWidth="2.5" fill="none" stroke="currentColor">
           <circle cx="11" cy="11" r="8"></circle>
           <path d="m21 21-4.3-4.3"></path>
         </g>
       </svg>
-      <input 
-        type="search" 
-        className="grow min-w-0" 
+      <input
+        type="search"
+        className="min-w-0"
+        aria-label="Search all gardens"
         placeholder="Search all gardens..." 
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
