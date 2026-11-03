@@ -64,30 +64,32 @@ export function GardenSettings({ garden, userId, storagePrefix }: GardenSettings
   }
 
   return (
-    <section aria-label="Garden details" className="mb-10 mt-12 w-full max-w-[35rem]">
+    <section aria-label="Garden Details">
       <form onSubmit={handleRename}>
-        <label htmlFor="garden-name" className="mb-2 block text-sm text-base-content/70">
-          Garden name
-        </label>
-        <div className="flex items-center gap-3">
-          <input
-            id="garden-name"
-            className="input h-11 min-w-0 flex-1 rounded-lg border-base-content/20 bg-transparent"
-            value={name}
-            disabled={pending}
-            onChange={(event) => {
-              setName(event.target.value);
-              setStatus("");
-              setError("");
-            }}
-            required
-          />
-          <button type="submit" className="btn h-11 shrink-0 rounded-lg px-5" disabled={!canSave}>
-            {pending ? "Saving…" : "Save"}
-          </button>
-        </div>
-        {status && <p role="status" className="mt-2 text-sm text-success">{status}</p>}
-        {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
+        <fieldset className="fieldset">
+          <label htmlFor="garden-name" className="label">
+            Garden Name
+          </label>
+          <div className="join">
+            <input
+              id="garden-name"
+              className="input join-item"
+              value={name}
+              disabled={pending}
+              onChange={(event) => {
+                setName(event.target.value);
+                setStatus("");
+                setError("");
+              }}
+              required
+            />
+            <button type="submit" className="btn join-item" disabled={!canSave}>
+              {pending ? "Saving…" : "Save"}
+            </button>
+          </div>
+          {status && <p role="status" className="mt-2 text-sm text-success">{status}</p>}
+          {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
+        </fieldset>
       </form>
 
       <dl className="mt-9 space-y-2 text-sm">
