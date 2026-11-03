@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { renameGarden, deleteGarden } from "@/lib/actions";
+import { deleteGarden, renameGarden } from "@/lib/actions";
 import type { Garden } from "@/lib/data";
-import { Trash } from "@/components/icons/liquid-glass";
 
 interface GardenSettingsProps {
   garden: Garden;
@@ -14,180 +13,200 @@ interface GardenSettingsProps {
 
 export function GardenSettings({ garden, userId, storagePrefix }: GardenSettingsProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-
-  // Rename state
   const [name, setName] = useState(garden.name);
-  const [renameLoading, setRenameLoading] = useState(false);
-  const [renameMsg, setRenameMsg] = useState("");
+  const [savedName, setSavedName] = useState(garden.name);
+  const [pending, startTransition] = useTransition();
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const canSave = Boolean(name.trim()) && name.trim() !== savedName && !pending;
+  const details = [
+    { label: "Slug", value: garden.slug },
+    { label: "Storage path", value: storagePrefix },
+    { label: "Garden ID", value: garden.id },
+    {
+      label: "Created",
+      value: new Date(garden.created_at).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      }),
+    },
+  ];
 
-  // Delete state
-  const [deleteConfirm, setDeleteConfirm] = useState("");
-  const [deleteLoading, setDeleteLoading] = useState(false);
+  function handleRename(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave) return;
 
-  const handleRename = async () => {
-    if (!name.trim() || name.trim() === garden.name) return;
-    setRenameLoading(true);
-    setRenameMsg("");
-    try {
-      await renameGarden(garden.id, name.trim(), userId);
-      setRenameMsg("Garden renamed successfully");
-      startTransition(() => router.refresh());
-    } catch (err: unknown) {
-      setRenameMsg(err instanceof Error ? err.message : "Failed to rename");
-    } finally {
-      setRenameLoading(false);
-    }
-  };
+    const nextName = name.trim();
+    setStatus("");
+    setError("");
+    startTransition(async () => {
+      try {
+        await renameGarden(garden.id, nextName, userId);
+        setName(nextName);
+        setSavedName(nextName);
+        setStatus("Garden name saved.");
+        router.refresh();
+      } catch {
+        setError("Could not save the garden name. Try again.");
+      }
+    });
+  }
 
-  const handleDelete = async () => {
-    if (deleteConfirm !== garden.name) return;
-    setDeleteLoading(true);
+  return (
+    <section className="mt-4">
+      <div>
+        <form onSubmit={handleRename} className="max-w-xl">
+          <fieldset className="fieldset">
+            <label htmlFor="garden-name" className="label">Garden Name</label>
+            <div className="join">
+              <input
+                id="garden-name"
+                className="input join-item"
+                value={name}
+                disabled={pending}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  setStatus("");
+                  setError("");
+                }}
+                required
+              />
+              <button type="submit" className="btn join-item" disabled={!canSave}>
+                {pending ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </fieldset>
+          {status && <p role="status" className="mt-2 text-sm text-success">{status}</p>}
+          {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
+        </form>
+        <ul className="list">
+          {/* <li className="list-row">
+            <label htmlFor="garden-name" className="w-30 text-xs uppercase font-semibold opacity-60">Garden Name</label>
+            <div className="join">
+
+              <input
+                id="garden-name"
+                className="input join-item"
+                value={name}
+                disabled={pending}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  setStatus("");
+                  setError("");
+                }}
+                required
+              />
+              <button type="submit" className="btn join-item" disabled={!canSave}>
+                {pending ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </li> */}
+          {details.map(({ label, value }) => (
+            <li className="list-row">
+              <p className="w-30 text-xs uppercase font-semibold opacity-60">{label}</p>
+              <p>{value}</p>
+            </li>
+          ))}
+        </ul>
+        {/* <dl className="grid min-w-0 gap-x-6 gap-y-3 sm:grid-cols-2">
+          {details.map(({ label, value }) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-sm font-medium">{label}</dt>
+              <dd className="mt-1 select-text wrap-anywhere text-sm text-base-content/75">
+                {label === "Created" ? value : <code>{value}</code>}
+              </dd>
+            </div>
+          ))}
+        </dl> */}
+      </div>
+    </section>
+  );
+}
+
+export function GardenDangerZone({ garden, userId }: Pick<GardenSettingsProps, "garden" | "userId">) {
+  const router = useRouter();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [confirmation, setConfirmation] = useState("");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+
+  async function handleDelete(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending || confirmation !== garden.name) return;
+
+    setPending(true);
+    setError("");
     try {
       await deleteGarden(garden.id, userId);
       router.push("/admin/gardens");
-    } catch (err: unknown) {
-      setDeleteLoading(false);
-      alert(err instanceof Error ? err.message : "Failed to delete garden");
+    } catch {
+      setError("Could not delete the garden. Try again.");
+      setPending(false);
     }
-  };
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Rename Section */}
-      <div className="card bg-base-200/50 border border-base-content/5">
-        <div className="card-body gap-4">
-          <h2 className="card-title text-lg">General</h2>
-          <div className="form-control w-full max-w-md">
-            <label className="label">
-              <span className="label-text font-medium">Garden Name</span>
-            </label>
-            <div className="join w-full">
+    <section aria-labelledby="garden-danger" className="grid items-start gap-4 py-6 lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-8">
+      <div>
+        <h2 id="garden-danger" className="text-lg font-semibold">Danger zone</h2>
+        <p className="mt-1 text-sm text-base-content/75">Permanently delete this garden and start file cleanup.</p>
+      </div>
+      <div>
+        <button
+          type="button"
+          className="btn btn-error btn-outline btn-sm"
+          onClick={() => {
+            setConfirmation("");
+            setError("");
+            dialog.current?.showModal();
+          }}
+        >
+          Delete garden
+        </button>
+      </div>
+      <dialog
+        ref={dialog}
+        className="modal"
+        aria-labelledby="delete-garden-title"
+        aria-describedby="delete-garden-description"
+        onCancel={(event) => {
+          if (pending) event.preventDefault();
+        }}
+      >
+        <div className="modal-box">
+          <h3 id="delete-garden-title" className="text-lg font-bold">Delete garden?</h3>
+          <p id="delete-garden-description" className="mt-2 text-sm">
+            Member access and share links are revoked immediately. File cleanup runs in the
+            background, and the slug becomes available when cleanup finishes.
+          </p>
+          <form onSubmit={handleDelete} className="mt-4">
+            <fieldset className="fieldset">
+              <label htmlFor="delete-garden-confirmation" className="wrap-anywhere text-sm">
+                Type <strong>{garden.name}</strong> to confirm.
+              </label>
               <input
-                type="text"
-                className="input input-bordered join-item flex-1"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleRename()}
-                placeholder="Garden name"
+                id="delete-garden-confirmation"
+                className="input w-full"
+                value={confirmation}
+                disabled={pending}
+                onChange={(event) => setConfirmation(event.target.value)}
+                autoComplete="off"
+                autoFocus
               />
-              <button
-                className="btn btn-primary join-item"
-                onClick={handleRename}
-                disabled={
-                  !name.trim() ||
-                  name.trim() === garden.name ||
-                  renameLoading ||
-                  isPending
-                }
-              >
-                {renameLoading ? (
-                  <span className="loading loading-spinner loading-sm" />
-                ) : (
-                  "Save"
-                )}
+            </fieldset>
+            {error && <p role="alert" className="mt-2 text-sm text-error">{error}</p>}
+            <div className="modal-action">
+              <button type="button" className="btn" disabled={pending} onClick={() => dialog.current?.close()}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-error" disabled={pending || confirmation !== garden.name}>
+                {pending ? "Deleting…" : "Delete garden"}
               </button>
             </div>
-            {renameMsg && (
-              <label className="label">
-                <span className="label-text-alt text-success">{renameMsg}</span>
-              </label>
-            )}
-          </div>
-
-          <div className="form-control w-full max-w-md">
-            <label className="label">
-              <span className="label-text font-medium">Slug</span>
-            </label>
-            <label className="input input-bordered flex items-center gap-1 font-mono text-sm">
-              <span>{garden.slug}</span>
-            </label>
-            <label className="label">
-              <span className="label-text-alt text-base-content/50">
-                The slug is fixed for this garden. Storage path: {storagePrefix}
-              </span>
-            </label>
-          </div>
-
-          <div className="form-control w-full max-w-md">
-            <label className="label">
-              <span className="label-text font-medium">Garden ID</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered font-mono text-sm"
-              value={garden.id}
-              readOnly
-            />
-            <label className="label">
-              <span className="label-text-alt text-base-content/50">
-                Used internally — cannot be changed
-              </span>
-            </label>
-          </div>
-
-          <div className="form-control w-full max-w-md">
-            <label className="label">
-              <span className="label-text font-medium">Created</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered text-sm"
-              value={new Date(garden.created_at).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-              readOnly
-            />
-          </div>
+          </form>
         </div>
-      </div>
-
-      {/* Danger Zone */}
-      <div className="card bg-error/5 border border-error/20">
-        <div className="card-body gap-4">
-          <h2 className="card-title text-lg text-error">
-            <Trash size={20} /> Danger Zone
-          </h2>
-          <p className="text-sm text-base-content/70">
-            Deleting a garden immediately removes member access and share links.
-            File cleanup runs in the background. The slug becomes available
-            again after cleanup finishes.
-          </p>
-          <div className="form-control w-full max-w-md">
-            <label className="label">
-              <span className="label-text font-medium">
-                Type <span className="font-bold text-error">{garden.name}</span>{" "}
-                to confirm
-              </span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered input-error"
-              placeholder={garden.name}
-              value={deleteConfirm}
-              onChange={(e) => setDeleteConfirm(e.target.value)}
-            />
-          </div>
-          <div className="card-actions">
-            <button
-              className="btn btn-error"
-              disabled={deleteConfirm !== garden.name || deleteLoading}
-              onClick={handleDelete}
-            >
-              {deleteLoading ? (
-                <span className="loading loading-spinner loading-sm" />
-              ) : (
-                <>
-                  <Trash size={16} />
-                  Delete Garden
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+      </dialog>
+    </section>
   );
 }

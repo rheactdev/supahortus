@@ -8,10 +8,11 @@ import {
   getGardenMembers,
   getGardenPublicLink,
 } from "@/lib/data";
-import { GardenSettings } from "@/components/ui/GardenSettings";
+import { GardenDangerZone, GardenSettings } from "@/components/ui/GardenSettings";
 import { MemberManager } from "@/components/ui/MemberManager";
 import { getGardenStoragePrefix } from "@/lib/garden-storage";
 import Link from "next/link";
+import { ArrowLeft } from "@/components/icons/liquid-glass";
 
 type SettingsPageProps = { params: Promise<{ gardenSlug: string }> };
 
@@ -43,28 +44,10 @@ async function GardenSettingsContents({ params }: SettingsPageProps) {
   ]);
 
   return (
-    <div className="flex flex-col gap-8 w-full">
-      <div className="flex items-center gap-4">
-        <Link
-          href="/admin/gardens"
-          className="btn btn-ghost btn-sm"
-        >
-          ← Back
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Garden Settings
-          </h1>
-          <p className="text-base-content/60 text-sm mt-0.5">
-            Manage <span className="font-medium">{garden.name}</span>
-          </p>
-        </div>
-      </div>
-
+    <div className="w-full min-w-0 max-w-5xl">
+      <Link className="btn" href="/admin/gardens"><ArrowLeft size={16} />
+        Back</Link>
       <GardenSettings garden={garden} userId={userId} storagePrefix={storagePrefix} />
-
-      <div className="divider" />
-
       <MemberManager
         gardenId={garden.id}
         members={members}
@@ -72,6 +55,7 @@ async function GardenSettingsContents({ params }: SettingsPageProps) {
         gardenName={garden.name}
         publicLink={publicLink}
       />
+      <GardenDangerZone garden={garden} userId={userId} />
     </div>
   );
 }

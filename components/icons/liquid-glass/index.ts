@@ -17,10 +17,11 @@ import { DocumentIcon } from "./document";
 import { Share } from "./share";
 import { MenuDots } from "./menu-dots";
 import { Refresh } from "./refresh";
+import { ArrowLeft } from "./arrow-left";
 
 export { 
     HardDrive, Upload,
     Folder, FileIcon, Download, Palette, Close, Add, Sun, Moon,
     Trash, Checkmark, Video, Music, PdfIcon, DocumentIcon,
-    Share, MenuDots, Refresh
+    Share, MenuDots, Refresh, ArrowLeft
 }

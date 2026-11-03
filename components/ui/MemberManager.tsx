@@ -1,577 +1,476 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   addGardenMember,
   generateGardenPublicLink,
+  removeGardenMember,
   updateGardenMember,
   updateGardenPublicLink,
-  removeGardenMember,
 } from "@/lib/actions";
 import type { GardenMember, GardenPublicLink } from "@/lib/data";
-import {
-  Add,
-  Trash,
-  Close,
-  Refresh,
-  Share,
-} from "@/components/icons/liquid-glass";
+
+type Member = GardenMember & { email: string };
+type MemberPermission = "can_upload" | "can_delete";
+type PublicPermission = "enabled" | MemberPermission;
 
 interface MemberManagerProps {
   gardenId: string;
-  members: (GardenMember & { email: string })[];
+  members: Member[];
   userId: string;
   gardenName: string;
   publicLink: GardenPublicLink | null;
 }
 
-export function MemberManager({
-  gardenId,
-  members,
-  userId,
-  gardenName,
-  publicLink,
-}: MemberManagerProps) {
+const memberPermissions = [
+  { field: "can_upload", label: "Upload" },
+  { field: "can_delete", label: "Delete files" },
+] as const;
+
+const publicPermissions = [
+  { field: "enabled", label: "Allow viewing" },
+  { field: "can_upload", label: "Allow uploads" },
+  { field: "can_delete", label: "Allow file deletion" },
+] as const;
+
+export function MemberManager({ gardenId, members, userId, gardenName, publicLink }: MemberManagerProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const addButton = useRef<HTMLButtonElement>(null);
+  const addDialog = useRef<HTMLDialogElement>(null);
+  const removeDialog = useRef<HTMLDialogElement>(null);
+  const removeButton = useRef<HTMLButtonElement | null>(null);
+  const removedMember = useRef(false);
+  const [removeTarget, setRemoveTarget] = useState<Member | null>(null);
+  const [dialogError, setDialogError] = useState("");
+  const [permissionError, setPermissionError] = useState("");
+  const [status, setStatus] = useState("");
+  const [pendingAction, setPendingAction] = useState("");
+  const [refreshing, startTransition] = useTransition();
+  const busy = Boolean(pendingAction) || refreshing;
 
-  // Add member state
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [email, setEmail] = useState("");
-  const [canUpload, setCanUpload] = useState(false);
-  const [canDelete, setCanDelete] = useState(false);
-  const [addLoading, setAddLoading] = useState(false);
-  const [addError, setAddError] = useState("");
+  function refreshMembers(message: string) {
+    setStatus(message);
+    startTransition(() => router.refresh());
+  }
 
-  // Remove member state
-  const [removeTarget, setRemoveTarget] = useState<
-    (GardenMember & { email: string }) | null
-  >(null);
-  const [removeLoading, setRemoveLoading] = useState(false);
+  function openAddDialog() {
+    setDialogError("");
+    addDialog.current?.querySelector("form")?.reset();
+    addDialog.current?.showModal();
+  }
 
-  // Toggle permission loading state
-  const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [publicAccess, setPublicAccess] =
-    useState<GardenPublicLink | null>(publicLink);
-  const [publicLoading, setPublicLoading] = useState(false);
-  const [publicMessage, setPublicMessage] = useState("");
+  function openRemoveDialog(member: Member, trigger: HTMLButtonElement) {
+    removeButton.current = trigger;
+    setDialogError("");
+    setRemoveTarget(member);
+    removeDialog.current?.showModal();
+  }
 
-  const handleAddMember = async () => {
-    if (!email.trim()) return;
-    setAddLoading(true);
-    setAddError("");
+  async function handleAdd(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") ?? "").trim();
+    if (!email) return;
+
+    setPendingAction("add");
+    setDialogError("");
     try {
-      const result = await addGardenMember(gardenId, email.trim(), userId, {
-        can_upload: canUpload,
-        can_delete: canDelete,
+      const result = await addGardenMember(gardenId, email, userId, {
+        can_upload: form.has("can_upload"),
+        can_delete: form.has("can_delete"),
       });
       if (result.error) {
-        setAddError(result.error);
+        setDialogError(result.error);
         return;
       }
-      setShowAddModal(false);
-      setEmail("");
-      setCanUpload(false);
-      setCanDelete(false);
-      startTransition(() => router.refresh());
-    } catch (err: unknown) {
-      setAddError(err instanceof Error ? err.message : "Failed to add member");
+      addDialog.current?.close();
+      refreshMembers("Member added.");
+    } catch {
+      setDialogError("Could not add the member. Try again.");
     } finally {
-      setAddLoading(false);
+      setPendingAction("");
     }
-  };
+  }
 
-  const handleTogglePermission = async (
-    targetUserId: string,
-    field: "can_upload" | "can_delete",
-    currentValue: boolean
-  ) => {
-    setTogglingId(`${targetUserId}-${field}`);
-    try {
-      await updateGardenMember(gardenId, targetUserId, userId, {
-        [field]: !currentValue,
-      });
-      startTransition(() => router.refresh());
-    } catch (err: unknown) {
-      alert(
-        err instanceof Error ? err.message : "Failed to update permission"
-      );
-    } finally {
-      setTogglingId(null);
-    }
-  };
+  async function handleRemove(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!removeTarget || busy) return;
 
-  const handleRemoveMember = async () => {
-    if (!removeTarget) return;
-    setRemoveLoading(true);
+    setPendingAction("remove");
+    setDialogError("");
     try {
       await removeGardenMember(gardenId, removeTarget.user_id, userId);
-      setRemoveTarget(null);
-      startTransition(() => router.refresh());
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to remove member");
+      removedMember.current = true;
+      removeDialog.current?.close();
+      refreshMembers("Member removed.");
+    } catch {
+      setDialogError("Could not remove the member. Try again.");
     } finally {
-      setRemoveLoading(false);
+      setPendingAction("");
     }
-  };
+  }
 
-  const handleGeneratePublicLink = async () => {
-    setPublicLoading(true);
-    setPublicMessage("");
+  async function changePermission(member: Member, field: MemberPermission) {
+    if (busy) return;
+
+    setPendingAction(`${member.user_id}-${field}`);
+    setPermissionError("");
+    setStatus("");
     try {
-      const link = await generateGardenPublicLink(gardenId, userId);
-      setPublicAccess(link as GardenPublicLink);
-      const url = `${window.location.origin}/public/g/${link.token}`;
-      await navigator.clipboard.writeText(url);
-      setPublicMessage("Public link copied");
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to generate link");
+      await updateGardenMember(gardenId, member.user_id, userId, { [field]: !member[field] });
+      refreshMembers("Member permission updated.");
+    } catch {
+      setPermissionError("Could not update the member permission. Try again.");
     } finally {
-      setPublicLoading(false);
+      setPendingAction("");
     }
-  };
-
-  const handlePublicToggle = async (
-    field: "enabled" | "can_upload" | "can_delete",
-    currentValue: boolean,
-  ) => {
-    if (!publicAccess) return;
-    setTogglingId(`public-${field}`);
-    try {
-      const link = await updateGardenPublicLink(gardenId, userId, {
-        [field]: !currentValue,
-      });
-      setPublicAccess(link as GardenPublicLink);
-    } catch (err) {
-      alert(
-        err instanceof Error ? err.message : "Failed to update public access",
-      );
-    } finally {
-      setTogglingId(null);
-    }
-  };
-
-  const handleCopyPublicLink = async () => {
-    if (!publicAccess) return;
-    const url = `${window.location.origin}/public/g/${publicAccess.token}`;
-    await navigator.clipboard.writeText(url);
-    setPublicMessage("Public link copied");
-  };
+  }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold">Members</h2>
-          <p className="text-base-content/60 text-sm">
-            {members.length} member{members.length !== 1 && "s"} in{" "}
-            <span className="font-medium">{gardenName}</span>
-          </p>
-        </div>
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={() => setShowAddModal(true)}
-        >
-          <Add size={16} />
-          Add Member
-        </button>
-      </div>
-
-      {/* Members Table */}
-      <div className="overflow-x-auto rounded-lg border border-base-content/5">
-        <table className="table">
-          <thead>
-            <tr className="bg-base-200/50">
-              <th>Email</th>
-              <th>Role</th>
-              <th className="text-center">View</th>
-              <th className="text-center">Upload</th>
-              <th className="text-center">Delete</th>
-              <th className="text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="bg-info/5 hover:bg-info/10">
-              <td>
-                <div className="flex items-center gap-2">
-                  <div className="avatar placeholder">
-                    <div className="bg-info text-info-content w-8 rounded-full">
-                      <Share size={14} />
-                    </div>
-                  </div>
-                  <div>
-                    <span className="font-medium text-sm">Public</span>
-                    <p className="text-xs text-base-content/45">
-                      Anyone with the link
-                    </p>
-                  </div>
-                </div>
-              </td>
-              <td>
-                <span className="badge badge-sm badge-info">public</span>
-              </td>
-              <td className="text-center">
-                <input
-                  type="checkbox"
-                  className="toggle toggle-sm toggle-info"
-                  checked={publicAccess?.enabled ?? false}
-                  disabled={
-                    !publicAccess ||
-                    publicLoading ||
-                    togglingId === "public-enabled"
-                  }
-                  onChange={() =>
-                    handlePublicToggle(
-                      "enabled",
-                      publicAccess?.enabled ?? false,
-                    )
-                  }
-                  title="Allow public viewing"
-                />
-              </td>
-              <td className="text-center">
-                <input
-                  type="checkbox"
-                  className="toggle toggle-sm toggle-success"
-                  checked={publicAccess?.can_upload ?? false}
-                  disabled={
-                    !publicAccess ||
-                    publicLoading ||
-                    togglingId === "public-can_upload"
-                  }
-                  onChange={() =>
-                    handlePublicToggle(
-                      "can_upload",
-                      publicAccess?.can_upload ?? false,
-                    )
-                  }
-                  title="Allow public uploads"
-                />
-              </td>
-              <td className="text-center">
-                <input
-                  type="checkbox"
-                  className="toggle toggle-sm toggle-error"
-                  checked={publicAccess?.can_delete ?? false}
-                  disabled={
-                    !publicAccess ||
-                    publicLoading ||
-                    togglingId === "public-can_delete"
-                  }
-                  onChange={() =>
-                    handlePublicToggle(
-                      "can_delete",
-                      publicAccess?.can_delete ?? false,
-                    )
-                  }
-                  title="Allow public deletion"
-                />
-              </td>
-              <td className="text-right">
-                {publicAccess ? (
-                  <div className="inline-flex items-center gap-1">
-                    <button
-                      className="btn btn-ghost btn-xs"
-                      onClick={handleCopyPublicLink}
-                      title="Copy public link"
-                    >
-                      <Share size={14} />
-                    </button>
-                    <button
-                      className="btn btn-ghost btn-xs"
-                      onClick={handleGeneratePublicLink}
-                      disabled={publicLoading}
-                      title="Generate a new link"
-                    >
-                      {publicLoading ? (
-                        <span className="loading loading-spinner loading-xs" />
-                      ) : (
-                        <Refresh size={14} />
-                      )}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    className="btn btn-info btn-xs"
-                    onClick={handleGeneratePublicLink}
-                    disabled={publicLoading}
-                  >
-                    {publicLoading ? (
-                      <span className="loading loading-spinner loading-xs" />
-                    ) : (
-                      <Share size={14} />
-                    )}
-                    Generate link
-                  </button>
-                )}
-              </td>
-            </tr>
-            {members.map((member) => {
-              const isOwner = member.role === "owner";
-              const isSelf = member.user_id === userId;
-
-              return (
-                <tr key={member.user_id} className="hover:bg-base-200/30">
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <div className="avatar placeholder">
-                        <div className="bg-neutral text-neutral-content w-8 rounded-full">
-                          <span className="text-xs">
-                            {member.email.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                      <div>
-                        <span className="font-medium text-sm">
-                          {member.email}
-                        </span>
-                        {isSelf && (
-                          <span className="badge badge-xs badge-ghost ml-2">
-                            you
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span
-                      className={`badge badge-sm ${
-                        isOwner ? "badge-primary" : "badge-ghost"
-                      }`}
-                    >
-                      {member.role}
-                    </span>
-                  </td>
-                  <td className="text-center">
-                    <input
-                      type="checkbox"
-                      className="toggle toggle-sm toggle-info"
-                      checked
-                      disabled
-                      title="Members can always view"
-                    />
-                  </td>
-                  <td className="text-center">
-                    <input
-                      type="checkbox"
-                      className={`toggle toggle-sm toggle-success ${
-                        togglingId === `${member.user_id}-can_upload`
-                          ? "opacity-50"
-                          : ""
-                      }`}
-                      checked={member.can_upload}
-                      disabled={
-                        isOwner ||
-                        isPending ||
-                        togglingId === `${member.user_id}-can_upload`
-                      }
-                      onChange={() =>
-                        handleTogglePermission(
-                          member.user_id,
-                          "can_upload",
-                          member.can_upload
-                        )
-                      }
-                    />
-                  </td>
-                  <td className="text-center">
-                    <input
-                      type="checkbox"
-                      className={`toggle toggle-sm toggle-error ${
-                        togglingId === `${member.user_id}-can_delete`
-                          ? "opacity-50"
-                          : ""
-                      }`}
-                      checked={member.can_delete}
-                      disabled={
-                        isOwner ||
-                        isPending ||
-                        togglingId === `${member.user_id}-can_delete`
-                      }
-                      onChange={() =>
-                        handleTogglePermission(
-                          member.user_id,
-                          "can_delete",
-                          member.can_delete
-                        )
-                      }
-                    />
-                  </td>
-                  <td className="text-right">
-                    {!isSelf && !isOwner && (
-                      <button
-                        className="btn btn-ghost btn-xs text-error"
-                        onClick={() => setRemoveTarget(member)}
-                        title="Remove member"
-                      >
-                        <Trash size={14} />
-                      </button>
-                    )}
-                    {isOwner && (
-                      <span className="text-xs text-base-content/40">—</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <p className="text-xs text-base-content/40">
-        Owners always have full permissions. Generating a new public link
-        revokes the previous link and its active visitors.
-      </p>
-
-      {publicMessage && (
-        <div className="toast toast-end z-50">
-          <div className="alert alert-success text-sm">
-            <span>{publicMessage}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Add Member Modal */}
-      {showAddModal && (
-        <dialog className="modal modal-open">
-          <div className="modal-box max-w-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-lg">Add Member</h3>
-              <button
-                className="btn btn-ghost btn-sm btn-square"
-                onClick={() => {
-                  setShowAddModal(false);
-                  setEmail("");
-                  setAddError("");
-                }}
-              >
-                <Close size={16} />
-              </button>
+    <>
+      <section aria-labelledby="garden-members" className="min-w-0 py-6">
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 id="garden-members" className="text-lg font-semibold">Members</h2>
+              <p className="mt-1 text-sm text-base-content/75">Manage who can access this garden.</p>
             </div>
-
-            <div className="form-control w-full">
-              <label className="label">
-                <span className="label-text">Email address</span>
-              </label>
-              <input
-                type="email"
-                className="input input-bordered w-full"
-                placeholder="user@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddMember()}
-                autoFocus
-              />
-            </div>
-
-            <div className="flex gap-6 mt-4">
-              <label className="label cursor-pointer gap-3">
-                <span className="label-text text-sm">Can upload</span>
-                <input
-                  type="checkbox"
-                  className="toggle toggle-sm toggle-success"
-                  checked={canUpload}
-                  onChange={(e) => setCanUpload(e.target.checked)}
-                />
-              </label>
-              <label className="label cursor-pointer gap-3">
-                <span className="label-text text-sm">Can delete</span>
-                <input
-                  type="checkbox"
-                  className="toggle toggle-sm toggle-error"
-                  checked={canDelete}
-                  onChange={(e) => setCanDelete(e.target.checked)}
-                />
-              </label>
-            </div>
-
-            {addError && (
-              <div role="alert" className="alert alert-error alert-soft mt-4 text-sm">
-                {addError}
-              </div>
-            )}
-
-            <div className="modal-action">
-              <button
-                className="btn btn-ghost"
-                onClick={() => {
-                  setShowAddModal(false);
-                  setEmail("");
-                  setAddError("");
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleAddMember}
-                disabled={!email.trim() || addLoading}
-              >
-                {addLoading ? (
-                  <span className="loading loading-spinner loading-sm" />
-                ) : (
-                  <>
-                    <Add size={16} />
-                    Add
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-          <form method="dialog" className="modal-backdrop">
-            <button
-              onClick={() => {
-                setShowAddModal(false);
-                setEmail("");
-                setAddError("");
-              }}
-            >
-              close
+            <button ref={addButton} type="button" className="btn btn-outline btn-sm" onClick={openAddDialog}>
+              Add member
             </button>
-          </form>
-        </dialog>
-      )}
+          </div>
 
-      {/* Remove Confirmation Modal */}
-      {removeTarget && (
-        <dialog className="modal modal-open">
-          <div className="modal-box max-w-sm">
-            <h3 className="font-bold text-lg">Remove Member</h3>
-            <p className="py-4 text-sm">
-              Remove{" "}
-              <span className="font-semibold">{removeTarget.email}</span> from{" "}
-              <span className="font-semibold">{gardenName}</span>? They will
-              lose all access immediately.
+          {members.length === 0 ? (
+            <p className="text-sm text-base-content/75">No members to show.</p>
+          ) : (
+            <div className="max-w-full overflow-x-auto rounded-box">
+              <table className="table table-sm" aria-labelledby="garden-members">
+                <thead>
+                  <tr className="bg-base-200/50">
+                    <th scope="col">Member</th>
+                    <th scope="col">Role</th>
+                    <th scope="col">View</th>
+                    {memberPermissions.map(({ field, label }) => (
+                      <th key={field} scope="col">{label}</th>
+                    ))}
+                    <th scope="col" className="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map((member) => {
+                    const owner = member.role === "owner";
+                    const self = member.user_id === userId;
+                    const label = member.email || member.user_id;
+
+                    return (
+                      <tr key={member.user_id}>
+                        <th scope="row" className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <div className="avatar avatar-placeholder shrink-0" aria-hidden="true">
+                              <div className="w-8 rounded-full bg-base-300 text-base-content">
+                                <span className="text-xs">{member.email.charAt(0).toUpperCase() || "?"}</span>
+                              </div>
+                            </div>
+                            <span className="max-w-64 wrap-anywhere">{label}</span>
+                            {self && <span className="badge badge-ghost badge-xs">You</span>}
+                          </div>
+                        </th>
+                        <td><span className="badge badge-ghost badge-sm">{member.role}</span></td>
+                        <td>Allowed</td>
+                        {memberPermissions.map(({ field, label: permission }) => (
+                          <td key={field}>
+                            {owner ? "Allowed" : (
+                              <label className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  className="toggle toggle-sm"
+                                  aria-label={`${permission} for ${label}`}
+                                  checked={member[field]}
+                                  disabled={busy}
+                                  onChange={() => changePermission(member, field)}
+                                />
+                                {pendingAction === `${member.user_id}-${field}` && (
+                                  <span role="status" className="text-xs">Saving…</span>
+                                )}
+                              </label>
+                            )}
+                          </td>
+                        ))}
+                        <td className="text-right">
+                          {!owner && !self && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              aria-label={`Remove ${label}`}
+                              onClick={(event) => openRemoveDialog(member, event.currentTarget)}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {status && <p role="status" className="text-sm text-success">{status}</p>}
+          {permissionError && <p role="alert" className="text-sm text-error">{permissionError}</p>}
+        </div>
+
+        <dialog
+          ref={addDialog}
+          className="modal"
+          aria-labelledby="add-member-title"
+          onClose={() => addButton.current?.focus()}
+          onCancel={(event) => {
+            if (pendingAction === "add") event.preventDefault();
+          }}
+        >
+          <div className="modal-box">
+            <h3 id="add-member-title" className="text-lg font-bold">Add member</h3>
+            <form onSubmit={handleAdd} className="mt-4">
+              <fieldset className="fieldset gap-3" disabled={pendingAction === "add"}>
+                <label htmlFor="garden-member-email" className="label text-base-content">Email address</label>
+                <input id="garden-member-email" name="email" type="email" className="input w-full" required autoFocus />
+                {memberPermissions.map(({ field, label }) => (
+                  <label key={field} className="label w-fit text-base-content">
+                    <input type="checkbox" name={field} className="toggle toggle-sm" />
+                    {label}
+                  </label>
+                ))}
+              </fieldset>
+              {dialogError && <p role="alert" className="mt-2 text-sm text-error">{dialogError}</p>}
+              <div className="modal-action">
+                <button type="button" className="btn" disabled={pendingAction === "add"} onClick={() => addDialog.current?.close()}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={busy}>
+                  {pendingAction === "add" ? "Adding…" : "Add member"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </dialog>
+
+        <dialog
+          ref={removeDialog}
+          className="modal"
+          aria-labelledby="remove-member-title"
+          onCancel={(event) => {
+            if (pendingAction === "remove") event.preventDefault();
+          }}
+          onClose={() => {
+            const trigger = removeButton.current;
+            if (removedMember.current || !trigger?.isConnected) {
+              addButton.current?.focus();
+            } else {
+              trigger.focus();
+            }
+            removedMember.current = false;
+            removeButton.current = null;
+            setRemoveTarget(null);
+          }}
+        >
+          <div className="modal-box">
+            <h3 id="remove-member-title" className="text-lg font-bold">Remove member?</h3>
+            <p className="mt-2 wrap-anywhere text-sm">
+              <strong>{removeTarget?.email || removeTarget?.user_id}</strong> will lose member access to <strong>{gardenName}</strong>.
             </p>
-            <div className="modal-action">
-              <button
-                className="btn btn-ghost"
-                onClick={() => setRemoveTarget(null)}
-              >
+            {dialogError && <p role="alert" className="mt-2 text-sm text-error">{dialogError}</p>}
+            <form onSubmit={handleRemove} className="modal-action">
+              <button type="button" className="btn" disabled={pendingAction === "remove"} onClick={() => removeDialog.current?.close()} autoFocus>
                 Cancel
               </button>
+              <button type="submit" className="btn btn-error" disabled={busy}>
+                {pendingAction === "remove" ? "Removing…" : "Remove member"}
+              </button>
+            </form>
+          </div>
+        </dialog>
+      </section>
+      <PublicSharing gardenId={gardenId} userId={userId} publicLink={publicLink} />
+    </>
+  );
+}
+
+function PublicSharing({ gardenId, userId, publicLink }: Pick<MemberManagerProps, "gardenId" | "userId" | "publicLink">) {
+  const replaceDialog = useRef<HTMLDialogElement>(null);
+  const [link, setLink] = useState(publicLink);
+  const [pending, setPending] = useState("");
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [replaceError, setReplaceError] = useState("");
+  const [manualUrl, setManualUrl] = useState("");
+  const path = link ? `/public/g/${link.token}` : "";
+
+  async function copyLink(linkPath: string) {
+    const url = new URL(linkPath, window.location.origin).href;
+    try {
+      await navigator.clipboard.writeText(url);
+      setManualUrl("");
+      setStatus("Public link copied.");
+    } catch {
+      setManualUrl(url);
+    }
+  }
+
+  async function saveLink() {
+    if (pending) return;
+
+    setPending("link");
+    setStatus("");
+    setError("");
+    setReplaceError("");
+    setManualUrl("");
+    try {
+      const saved = await generateGardenPublicLink(gardenId, userId);
+      setLink(saved);
+      replaceDialog.current?.close();
+      setStatus(link ? "Public link replaced." : "Public link generated.");
+      await copyLink(`/public/g/${saved.token}`);
+    } catch {
+      if (link) {
+        setReplaceError("Could not replace the public link. Try again.");
+      } else {
+        setError("Could not generate the public link. Try again.");
+      }
+    } finally {
+      setPending("");
+    }
+  }
+
+  async function handleCopy() {
+    if (pending) return;
+
+    setPending("copy");
+    setError("");
+    setStatus("");
+    try {
+      await copyLink(path);
+    } finally {
+      setPending("");
+    }
+  }
+
+  async function changePermission(field: PublicPermission) {
+    if (!link || pending) return;
+
+    setPending(field);
+    setError("");
+    setStatus("");
+    try {
+      const saved = await updateGardenPublicLink(gardenId, userId, { [field]: !link[field] });
+      setLink(saved);
+      setStatus("Public sharing updated.");
+    } catch {
+      setError("Could not update public sharing. Try again.");
+    } finally {
+      setPending("");
+    }
+  }
+
+  return (
+    <section aria-labelledby="garden-public-sharing" className="grid min-w-0 gap-4 py-6 lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-8">
+      <div>
+        <h2 id="garden-public-sharing" className="text-lg font-semibold">Public sharing</h2>
+        <p className="mt-1 text-sm text-base-content/75">
+          {link
+            ? "Anyone with the link can access this garden when public viewing is enabled."
+            : "Generate a link to share this garden with anyone who has the link."}
+        </p>
+      </div>
+      <div className="flex min-w-0 flex-col items-start gap-3">
+        <span className="badge badge-ghost badge-sm">
+          {link ? (link.enabled ? "Enabled" : "Disabled") : "No link"}
+        </span>
+        {link ? (
+          <>
+            <fieldset className="fieldset gap-2">
+              <legend className="fieldset-legend">Link permissions</legend>
+              {publicPermissions.map(({ field, label }) => (
+                <label key={field} className="label w-fit text-base-content">
+                  <input
+                    type="checkbox"
+                    className="toggle toggle-sm"
+                    checked={link[field]}
+                    disabled={Boolean(pending)}
+                    onChange={() => changePermission(field)}
+                  />
+                  {label}
+                  {pending === field && <span role="status">Saving…</span>}
+                </label>
+              ))}
+            </fieldset>
+            <div className="flex flex-wrap gap-2">
               <button
-                className="btn btn-error"
-                onClick={handleRemoveMember}
-                disabled={removeLoading}
+                type="button"
+                className="btn btn-sm"
+                disabled={Boolean(pending)}
+                onClick={handleCopy}
               >
-                {removeLoading ? (
-                  <span className="loading loading-spinner loading-sm" />
-                ) : (
-                  <>
-                    <Trash size={16} />
-                    Remove
-                  </>
-                )}
+                {pending === "copy" ? "Copying…" : "Copy link"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                aria-disabled={Boolean(pending)}
+                onClick={() => {
+                  if (pending) return;
+                  setReplaceError("");
+                  replaceDialog.current?.showModal();
+                }}
+              >
+                Replace link
               </button>
             </div>
+          </>
+        ) : (
+          <div>
+            <button type="button" className="btn btn-outline btn-sm" disabled={Boolean(pending)} onClick={saveLink}>
+              {pending ? "Generating…" : "Generate link"}
+            </button>
           </div>
-          <form method="dialog" className="modal-backdrop">
-            <button onClick={() => setRemoveTarget(null)}>close</button>
-          </form>
-        </dialog>
-      )}
-    </div>
+        )}
+        {status && <p role="status" className="text-sm text-success">{status}</p>}
+        {error && <p role="alert" className="text-sm text-error">{error}</p>}
+        {manualUrl && (
+          <div className="fieldset w-full min-w-0">
+            <label htmlFor="garden-public-url" className="label text-base-content">Public link</label>
+            <input id="garden-public-url" className="input w-full" readOnly value={manualUrl} />
+            <p role="status" className="text-sm">Could not copy automatically. Select and copy the link above.</p>
+          </div>
+        )}
+      </div>
+
+      <dialog
+        ref={replaceDialog}
+        className="modal"
+        aria-labelledby="replace-link-title"
+        onCancel={(event) => {
+          if (pending) event.preventDefault();
+        }}
+      >
+        <div className="modal-box">
+          <h3 id="replace-link-title" className="text-lg font-bold">Replace public link?</h3>
+          <p className="mt-2 text-sm">
+            Replacing the link enables public sharing and revokes the previous link and access for its active visitors.
+          </p>
+          {replaceError && <p role="alert" className="mt-2 text-sm text-error">{replaceError}</p>}
+          <div className="modal-action">
+            <button type="button" className="btn" disabled={Boolean(pending)} onClick={() => replaceDialog.current?.close()} autoFocus>
+              Cancel
+            </button>
+            <button type="button" className="btn btn-error" disabled={Boolean(pending)} onClick={saveLink}>
+              {pending ? "Replacing…" : "Replace link"}
+            </button>
+          </div>
+        </div>
+      </dialog>
+    </section>
   );
 }
