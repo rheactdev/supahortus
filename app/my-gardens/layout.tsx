@@ -1,14 +1,29 @@
+import { Suspense, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Navbar } from "@/components/ui/navbar";
 
 export const unstable_instant = false;
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function DashboardLayout({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <div
+          className="flex min-h-screen items-center justify-center"
+          role="status"
+          aria-label="Loading dashboard"
+        >
+          <span className="loading loading-rings loading-lg" />
+        </div>
+      }
+    >
+      <AuthenticatedDashboard>{children}</AuthenticatedDashboard>
+    </Suspense>
+  );
+}
+
+async function AuthenticatedDashboard({ children }: { children: ReactNode }) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
