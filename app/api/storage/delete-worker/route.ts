@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { Receiver } from "@upstash/qstash";
-import { s3Client, BUCKET_NAME } from "@/lib/s3";
+import { deleteStorageKeys } from "@/lib/storage-delete";
 
 const receiver = new Receiver({
   currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY!,
@@ -32,12 +31,7 @@ export async function POST(request: Request) {
     let deleted = 0;
     for (let i = 0; i < keys.length; i += 1000) {
       const batch = keys.slice(i, i + 1000);
-      await s3Client.send(
-        new DeleteObjectsCommand({
-          Bucket: BUCKET_NAME,
-          Delete: { Objects: batch.map((Key) => ({ Key })) },
-        })
-      );
+      await deleteStorageKeys(batch);
       deleted += batch.length;
     }
 

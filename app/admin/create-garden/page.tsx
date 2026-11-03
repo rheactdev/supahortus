@@ -1,15 +1,20 @@
-import { createClient } from "@/lib/supabase/server";
+import { Suspense } from "react";
+import { getAdminUserId } from "@/lib/admin-access";
 import { redirect } from "next/navigation";
 import { CreateGardenDialog } from "@/components/ui/CreateGardenDialog";
+import { RouteLoading } from "@/components/ui/RouteLoading";
 import Link from "next/link";
 
-export default async function CreateNewGardenPage() {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+export default function CreateNewGardenPage() {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading garden creation" />}>
+      <CreateNewGarden />
+    </Suspense>
+  );
+}
 
-  if (!data?.claims) return redirect("/auth/login");
-
-  const userId = data.claims.sub as string;
+async function CreateNewGarden() {
+  if (!(await getAdminUserId())) redirect("/my-gardens");
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -26,7 +31,7 @@ export default async function CreateNewGardenPage() {
       </div>
 
       <div className="max-w-md">
-        <CreateGardenDialog userId={userId} inline />
+        <CreateGardenDialog inline />
       </div>
     </div>
   );

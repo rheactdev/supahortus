@@ -63,9 +63,11 @@ export function encryptionInput(key: string) {
   };
 }
 
+export const STORAGE_URL_LIFETIME_SECONDS = 900;
+
 export async function signObject(
   command: GetObjectCommand | PutObjectCommand | UploadPartCommand,
-  expiresIn = 900,
+  expiresIn = STORAGE_URL_LIFETIME_SECONDS,
 ) {
   const { SSECustomerAlgorithm, SSECustomerKey, SSECustomerKeyMD5 } = command.input;
   const headers: Record<string, string> = SSECustomerKey ? {

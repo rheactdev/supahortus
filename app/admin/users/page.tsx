@@ -1,13 +1,19 @@
-import { createClient } from "@/lib/supabase/server";
+import { Suspense } from "react";
+import { getAdminUserId } from "@/lib/admin-access";
+import { RouteLoading } from "@/components/ui/RouteLoading";
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-export default async function AdminUsersPage() {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+export default function AdminUsersPage() {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading users" />}>
+      <AdminUsers />
+    </Suspense>
+  );
+}
 
-  if (!data?.claims) return redirect("/auth/login");
-
+async function AdminUsers() {
+  if (!(await getAdminUserId())) redirect("/my-gardens");
   const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
   const users = usersData?.users ?? [];
 

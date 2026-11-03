@@ -9,23 +9,26 @@ import {
   getMoveTreeForUser,
 } from "@/lib/data";
 import dynamic from "next/dynamic";
+import { RouteLoading } from "@/components/ui/RouteLoading";
 
 const DriveExplorer = dynamic(
   () => import("@/components/ui/DriveExplorer").then((m) => m.DriveExplorer),
   {
-    loading: () => (
-      <div className="flex justify-center p-12">
-        <span className="loading loading-ring text-primary loading-lg" />
-      </div>
-    ),
+    loading: () => <RouteLoading label="Loading garden explorer" />,
   }
 );
 
-export default async function GardenPage({
-  params,
-}: {
-  params: Promise<{ gardenSlug: string }>;
-}) {
+type GardenPageProps = { params: Promise<{ gardenSlug: string }> };
+
+export default function GardenPage({ params }: GardenPageProps) {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading garden" />}>
+      <GardenContents params={params} />
+    </Suspense>
+  );
+}
+
+async function GardenContents({ params }: GardenPageProps) {
   const { gardenSlug } = await params;
 
   const supabase = await createClient();
@@ -60,25 +63,17 @@ export default async function GardenPage({
       : {};
 
   return (
-    <Suspense
-      fallback={
-        <div className="flex justify-center p-12">
-          <span className="loading loading-ring text-primary loading-lg" />
-        </div>
-      }
-    >
-      <DriveExplorer
-        items={items}
-        breadcrumbs={[]}
-        thumbnailUrls={thumbnailUrls}
-        folderId={null}
-        gardenId={garden.id}
-        gardenSlug={gardenSlug}
-        userId={userId}
-        canUpload={membership.can_upload}
-        canDelete={membership.can_delete}
-        moveTree={moveTree}
-      />
-    </Suspense>
+    <DriveExplorer
+      items={items}
+      breadcrumbs={[]}
+      thumbnailUrls={thumbnailUrls}
+      folderId={null}
+      gardenId={garden.id}
+      gardenSlug={gardenSlug}
+      userId={userId}
+      canUpload={membership.can_upload}
+      canDelete={membership.can_delete}
+      moveTree={moveTree}
+    />
   );
 }

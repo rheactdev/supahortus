@@ -62,10 +62,14 @@ export function MemberManager({
     setAddLoading(true);
     setAddError("");
     try {
-      await addGardenMember(gardenId, email.trim(), userId, {
+      const result = await addGardenMember(gardenId, email.trim(), userId, {
         can_upload: canUpload,
         can_delete: canDelete,
       });
+      if (result.error) {
+        setAddError(result.error);
+        return;
+      }
       setShowAddModal(false);
       setEmail("");
       setCanUpload(false);

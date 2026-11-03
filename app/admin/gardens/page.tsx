@@ -1,15 +1,23 @@
-import { createClient } from "@/lib/supabase/server";
+import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { getGardensForUser } from "@/lib/data";
 import Link from "next/link";
 import { Folder } from "@/components/icons/liquid-glass";
+import { GardenCleanupJobs } from "@/components/ui/GardenCleanupJobs";
+import { RouteLoading } from "@/components/ui/RouteLoading";
+import { getAdminUserId } from "@/lib/admin-access";
 
-export default async function AdminGardensPage() {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
+export default function AdminGardensPage() {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading garden administration" />}>
+      <AdminGardens />
+    </Suspense>
+  );
+}
 
-  if (!data?.claims) return null;
-
-  const userId = data.claims.sub as string;
+async function AdminGardens() {
+  const userId = await getAdminUserId();
+  if (!userId) redirect("/my-gardens");
   const gardens = await getGardensForUser(userId);
 
   return (
@@ -21,7 +29,7 @@ export default async function AdminGardensPage() {
             Select a garden to manage settings and members.
           </p>
         </div>
-        <Link href="/admin/gardens/create-new" className="btn btn-primary btn-sm">
+        <Link href="/admin/create-garden" className="btn btn-primary btn-sm">
           + New Garden
         </Link>
       </div>
@@ -58,6 +66,9 @@ export default async function AdminGardensPage() {
           ))}
         </div>
       )}
+      <Suspense fallback={<RouteLoading label="Loading garden cleanup jobs" />}>
+        <GardenCleanupJobs />
+      </Suspense>
     </div>
   );
 }

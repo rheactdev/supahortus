@@ -5,8 +5,7 @@ A premium, S3-powered cloud drive explorer and file management system built with
 ## ✨ Key Features
 
 - **S3 Explorer**: Navigate your S3 buckets with a familiar, fast, and responsive folder-based interface.
-- **Advanced Folder Sharing**: Share specific folders with other users via email. 
-- **Administrative Invitations**: Admins can invite new users to the platform directly from the sharing modal.
+- **Garden and item sharing** — Garden owners can invite members by email or manage a public garden link. Individual files and folders support share links.
 - **Robust Authentication**: Powered by Supabase SSR with support for Magic Links, PKCE, and persistent sessions.
 - **Modern Tech Stack**: Built with Next.js 16 (App Router), Tailwind CSS v4, and DaisyUI.
 - **Enterprise-ready S3 Integration**: Uses `@aws-sdk/client-s3` with presigned URLs for secure, direct-to-S3 uploads and downloads.
@@ -24,26 +23,9 @@ A premium, S3-powered cloud drive explorer and file management system built with
 
 ### Prerequisites
 
-You'll need the following environment variables. Create a `.env.local` file in the root directory:
+Copy [`.env.example`](.env.example) to `.env.local` and fill in the Supabase, Backblaze B2, and QStash settings. Use the bare hostname for `S3_ENDPOINT`. Configure `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, and `QSTASH_NEXT_SIGNING_KEY` for background file operations, and set `UPSTASH_WORKFLOW_URL` when workers need an explicit public app origin.
 
-```env
-# Supabase Configuration
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_public_anon_key
-NEXT_PRIVATE_SUPABASE_SECRET_KEY=your_secret_key
-
-# Comma-separated Supabase user UUIDs allowed to access /admin.
-# As an alternative, set app_metadata.role = "admin" or
-# app_metadata.is_admin = true with the Supabase Admin API.
-ADMIN_USER_IDS=your_supabase_user_uuid
-
-# S3 Configuration
-S3_ACCESS_KEY_ID=your_access_key
-S3_SECRET_ACCESS_KEY=your_secret_key
-S3_REGION=your_region
-S3_BUCKET_NAME=your_bucket_name
-S3_ENDPOINT=your_optional_endpoint # e.g., for Cloudflare R2 or MinIO
-```
+For `/admin` access, set `ADMIN_USER_IDS` to a comma-separated list of Supabase user UUIDs or set `app_metadata.role` to `admin` or `app_metadata.is_admin` to `true` through the Supabase Admin API.
 
 ### Installation
 
@@ -71,8 +53,22 @@ S3_ENDPOINT=your_optional_endpoint # e.g., for Cloudflare R2 or MinIO
 ### Authentication Flow
 Supahortus uses the **PKCE** flow for standard logins and **Token Hash** verification for Magic Links. The authentication lifecycle is managed by `app/api/auth/callback/route.ts` and `app/auth/confirm/route.ts`, ensuring sessions are synchronized across standard and invitation-based sign-ins.
 
+Set the Supabase Auth Site URL to the application origin. For server-side invite acceptance, configure the **Invite user** email template to link to `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite`. The default email link returns the session in the URL fragment, which the server callback cannot read. [Supabase email template guidance](https://supabase.com/docs/guides/auth/auth-email-templates#redirecting-the-user-to-a-server-side-endpoint)
+
 ### Session Management
-A root-level `proxy.ts` acts as the Next.js 16 middleware, ensuring that sessions are refreshed and validated on every request without blocking public authentication routes.
+The root-level `proxy.ts` validates and refreshes Supabase sessions for matched requests. The response carrying refreshed cookies also carries Supabase’s cache-prevention headers. Both auth callbacks accept same-origin destinations and default to `/my-gardens`.
+
+This app enables Next.js Cache Components. Keep cookie reads, Supabase session validation, and request-time data access inside an async child rendered under Suspense. Use the [Next.js authentication guide for Cache Components](https://nextjs.org/docs/app/guides/authentication-with-cache-components) and the [Supabase SSR client guide](https://supabase.com/docs/guides/auth/server-side/nextjs) together.
+
+### Gardens and storage rollout
+
+1. Pause garden creation, deletion, and file mutations for the rollout. Let in-flight file deletion workflows finish before deploying the new workflow steps.
+2. Apply the [Supabase migration](supabase/migrations/20261103000100_reserve_garden_slugs_during_cleanup.sql) before deploying the application. It backfills existing storage prefixes and installs the slug reservation and cleanup functions.
+3. Deploy the application and resume writes. The legacy worker can finish queued key-list garden deletions. Drain that queue before retiring the legacy worker.
+
+Existing gardens keep their `hortus/<slug>/` prefix. New gardens use `hortus-v2/<slug>/<garden-id>/`, so a new garden can reuse a slug without reusing the previous garden’s object keys.
+
+When a garden is deleted, cleanup waits for existing upload URLs to expire, aborts outstanding multipart uploads, and removes current objects under the retired prefix. B2 bucket retention rules still govern historical object versions. The slug becomes available after cleanup succeeds. Admins can see pending or failed jobs and retry them from `/admin/gardens`. The B2 application key needs permission to list and abort multipart uploads as well as list and delete objects.
 
 ### S3 Security
 Uploads and downloads go directly between the browser and B2 using presigned URLs. Encrypted browser reads use a service worker that intercepts only the storage transfer endpoint, adds the object-specific SSE-C headers, and streams the B2 response. The app server issues transfer credentials after checking access.
@@ -92,11 +88,11 @@ The app reads the key version from the reserved storage path and derives a disti
 
 ## 📂 Project Structure
 
-- `/app/api/s3`: API routes for S3 operations (listing, sharing, presigned URLs)
-- `/components/ui`: Core UI components including `DriveExplorer` and `Navbar`
-- `/lib/supabase`: Server and Admin Supabase clients
-- `/lib/s3.ts`: S3 client configuration and utility functions
-- `/proxy.ts`: Next.js 16 middleware for session management
+- `/my-gardens`, `/my-gardens/[gardenSlug]`, and `/my-gardens/[gardenSlug]/[folder]` cover the garden picker and file explorer.
+- `/admin/gardens` covers garden administration, and `/admin/create-garden` is the admin-only creation form.
+- `/public/g/[token]` and `/s/[code]` open public gardens and shared items.
+- `/app/api/storage` contains storage route handlers. `/app/api/workflow` and `/app/api/revalidate` handle background operations and cache invalidation.
+- `/lib/supabase` contains the Supabase client setup. `/lib/s3.ts` configures the S3 client, and `/proxy.ts` handles session refresh.
 
 ## 📄 License
 

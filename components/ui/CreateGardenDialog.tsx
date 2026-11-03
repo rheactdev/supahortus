@@ -1,24 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createGarden } from "@/lib/actions";
 import { Add } from "@/components/icons/liquid-glass";
 
 interface CreateGardenDialogProps {
-  userId: string;
   inline?: boolean;
 }
 
 const SLUG_REGEX = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
-export function CreateGardenDialog({ userId, inline }: CreateGardenDialogProps) {
+export function CreateGardenDialog({ inline }: CreateGardenDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [loading, setLoading] = useState(false);
+  const submitting = useRef(false);
   const [error, setError] = useState("");
 
   const slugValid = slug.length >= 2 && slug.length <= 48 && SLUG_REGEX.test(slug);
@@ -28,33 +28,42 @@ export function CreateGardenDialog({ userId, inline }: CreateGardenDialogProps) 
       .toLowerCase()
       .replace(/[^a-z0-9-]/g, "-")
       .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 48);
+      .replace(/^-/, "")
+      .slice(0, 48)
+      .replace(/-$/, "");
 
   const handleNameChange = (val: string) => {
     setName(val);
     if (!slugTouched) setSlug(autoSlug(val));
   };
 
-  const handleCreate = async () => {
-    if (!name.trim() || !slugValid) return;
+  const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!name.trim() || !slugValid || submitting.current) return;
+    submitting.current = true;
     setLoading(true);
     setError("");
     try {
-      const { slug: gardenSlug } = await createGarden(name.trim(), slug, userId);
+      const result = await createGarden(name.trim(), slug);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
       setOpen(false);
       setName("");
       setSlug("");
       setSlugTouched(false);
-      router.push(`/my-gardens/${gardenSlug}`);
+      router.push(`/my-gardens/${result.slug}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to create garden");
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   };
 
   const resetAndClose = () => {
+    if (submitting.current) return;
     setOpen(false);
     setName("");
     setSlug("");
@@ -85,7 +94,7 @@ export function CreateGardenDialog({ userId, inline }: CreateGardenDialogProps) 
           </span>
         </label>
         <label className="input input-bordered flex items-center gap-1">
-          <span className="text-base-content/40 text-sm">hortus/</span>
+          <span className="text-base-content/40 text-sm">/my-gardens/</span>
           <input
             type="text"
             className="grow bg-transparent outline-none font-mono text-sm"
@@ -95,7 +104,6 @@ export function CreateGardenDialog({ userId, inline }: CreateGardenDialogProps) 
               setSlugTouched(true);
               setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""));
             }}
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
           />
         </label>
         <label className="label">
@@ -118,12 +126,12 @@ export function CreateGardenDialog({ userId, inline }: CreateGardenDialogProps) 
   if (inline) {
     return (
       <div className="card bg-base-200/50 border border-base-content/5">
-        <div className="card-body gap-4">
+        <form className="card-body gap-4" onSubmit={handleCreate}>
           {formContent}
           <div className="card-actions justify-end mt-2">
             <button
               className="btn btn-primary"
-              onClick={handleCreate}
+              type="submit"
               disabled={!name.trim() || !slugValid || loading}
             >
               {loading ? (
@@ -133,7 +141,7 @@ export function CreateGardenDialog({ userId, inline }: CreateGardenDialogProps) 
               )}
             </button>
           </div>
-        </div>
+        </form>
       </div>
     );
   }
@@ -147,18 +155,18 @@ export function CreateGardenDialog({ userId, inline }: CreateGardenDialogProps) 
 
       {open && (
         <dialog className="modal modal-open">
-          <div className="modal-box max-w-sm">
+          <form className="modal-box max-w-sm" onSubmit={handleCreate}>
             <h3 className="font-bold text-lg mb-4">Create Garden</h3>
 
             {formContent}
 
             <div className="modal-action">
-              <button className="btn btn-ghost" onClick={resetAndClose}>
+              <button type="button" className="btn btn-ghost" onClick={resetAndClose} disabled={loading}>
                 Cancel
               </button>
               <button
                 className="btn btn-primary"
-                onClick={handleCreate}
+                type="submit"
                 disabled={!name.trim() || !slugValid || loading}
               >
                 {loading ? (
@@ -168,9 +176,9 @@ export function CreateGardenDialog({ userId, inline }: CreateGardenDialogProps) 
                 )}
               </button>
             </div>
-          </div>
+          </form>
           <form method="dialog" className="modal-backdrop">
-            <button onClick={resetAndClose}>close</button>
+            <button type="button" onClick={resetAndClose} disabled={loading}>close</button>
           </form>
         </dialog>
       )}

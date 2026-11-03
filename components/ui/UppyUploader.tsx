@@ -7,7 +7,6 @@ import AwsS3 from "@uppy/aws-s3";
 import ThumbnailGenerator from "@uppy/thumbnail-generator";
 import { Upload } from "@/components/icons/liquid-glass";
 import { QueueUpload } from "./queueupload";
-import { invalidateGardenCache } from "@/lib/actions";
 
 const MULTIPART_THRESHOLD = 50 * 1024 * 1024; // 50 MB
 
@@ -138,7 +137,6 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
         window.alert("Some uploads reached storage but could not be confirmed.");
       }
       if (confirmations.some(({ status }) => status === "fulfilled")) {
-        await invalidateGardenCache(gardenId);
         onUploadSuccess();
       }
     };
@@ -147,7 +145,7 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
     return () => {
       uppy.off("complete", handleComplete);
     };
-  }, [uppy, onUploadSuccess, gardenId]);
+  }, [uppy, onUploadSuccess]);
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);

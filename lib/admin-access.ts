@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 type Claims = {
   sub?: unknown;
   app_metadata?: unknown;
+  is_anonymous?: unknown;
 };
 
 function configuredAdminIds(): Set<string> {
@@ -19,7 +20,8 @@ function configuredAdminIds(): Set<string> {
 export function claimsAreAdmin(claims: unknown): boolean {
   if (!claims || typeof claims !== "object") return false;
 
-  const { sub, app_metadata: appMetadata } = claims as Claims;
+  const { sub, app_metadata: appMetadata, is_anonymous: isAnonymous } = claims as Claims;
+  if (isAnonymous === true) return false;
   if (typeof sub === "string" && configuredAdminIds().has(sub)) {
     return true;
   }

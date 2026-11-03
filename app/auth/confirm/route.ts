@@ -1,24 +1,24 @@
 import { createClient } from "@/lib/supabase/server";
 import { type EmailOtpType } from "@supabase/supabase-js";
-import { redirect } from "next/navigation";
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { getAuthRedirect } from "@/lib/auth-redirect";
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
+  const { searchParams, origin } = request.nextUrl;
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/my-gardens";
+  const target = getAuthRedirect(searchParams.get("next"), origin);
+  const responseHeaders = new Headers();
 
-  console.log(`[auth-confirm] Received: code=${!!code}, token_hash=${!!token_hash}, type=${type}, next=${next}`);
+  console.log(`[auth-confirm] Received: code=${!!code}, token_hash=${!!token_hash}, type=${type}`);
 
-  const supabase = await createClient();
+  const supabase = await createClient(responseHeaders);
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      console.log(`[auth-confirm] Successfully exchanged code for session. Redirecting to ${next}`);
-      return redirect(next);
+      return NextResponse.redirect(target, { headers: responseHeaders });
     }
     console.error(`[auth-confirm] Code exchange error: ${error.message}`);
   }
@@ -29,13 +29,14 @@ export async function GET(request: NextRequest) {
       token_hash,
     });
     if (!error) {
-      console.log(`[auth-confirm] Successfully verified OTP. Redirecting to ${next}`);
-      return redirect(next);
+      return NextResponse.redirect(target, { headers: responseHeaders });
     }
     console.error(`[auth-confirm] OTP verification error: ${error.message}`);
   }
 
   // redirect the user to an error page with some instructions
   console.warn(`[auth-confirm] All verification methods failed. Redirecting to login.`);
-  return redirect(`/auth/login?error=CouldNotVerifyLink`);
+  return NextResponse.redirect(new URL("/auth/login?error=CouldNotVerifyLink", origin), {
+    headers: responseHeaders,
+  });
 }

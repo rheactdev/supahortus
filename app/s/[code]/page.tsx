@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { RouteLoading } from "@/components/ui/RouteLoading";
 import { StorageDownloadLink } from "@/components/ui/StorageDownloadLink";
 import { STORAGE_TRANSFER_PATH } from "@/lib/storage-transfer-url";
 import { notFound, redirect } from "next/navigation";
@@ -9,11 +11,19 @@ import {
   getSharedItemDownloadUrl,
 } from "@/lib/item-share";
 
-export default async function SharedItemPage({
-  params,
-}: {
+type PageProps = {
   params: Promise<{ code: string }>;
-}) {
+};
+
+export default function SharedItemPage({ params }: PageProps) {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading shared item" />}>
+      <SharedItemContents params={params} />
+    </Suspense>
+  );
+}
+
+async function SharedItemContents({ params }: PageProps) {
   await connection();
   const { code } = await params;
   const context = await getItemShareContext(code);

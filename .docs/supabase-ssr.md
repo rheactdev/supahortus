@@ -57,7 +57,7 @@ Yes, but there are two specific scenarios that can cause users to receive anothe
 
 If you use ISR on pages that trigger a Supabase session refresh, the cached response will include the `Set-Cookie` header containing the refreshed JWT. When that cached response is served to a subsequent user, their browser stores the token and they are signed in as the wrong person.
 
-Do not enable ISR on any route where authentication is handled or where a session refresh can occur. In Nuxt, avoid setting `isr` on authenticated routes. In Next.js, use `export const dynamic = 'force-dynamic'` on pages that require authentication.
+Keep session refresh responses out of shared caches. Supahortus uses Next.js with Cache Components enabled. Read cookies and verify the Supabase session inside an async Server Component rendered beneath Suspense. For a segment that intentionally blocks on request-time data, use `export const instant = false`. The `dynamic = 'force-dynamic'` setting belongs to the previous caching model. [Next.js authentication with Cache Components](https://nextjs.org/docs/app/guides/authentication-with-cache-components) · [Next.js migration guide](https://nextjs.org/docs/app/guides/migrating-to-cache-components#dynamic--force-dynamic)
 
 #### CDN and reverse proxy caching
 
@@ -67,13 +67,17 @@ As of `@supabase/ssr` v0.10.0, the library automatically passes the necessary ca
 
 If you are on an older version or need to set headers manually, add `Cache-Control: private, no-store` to responses from any route that handles authentication:
 
-#### Next.js middleware
+#### Next.js Proxy
 
 ```ts
-const response = NextResponse.next()
-// ... supabase client setup and getUser() call
-response.headers.set('Cache-Control', 'private, no-store')
-return response
+setAll(cookiesToSet, headers) {
+  cookiesToSet.forEach(({ name, value, options }) => {
+    response.cookies.set(name, value, options)
+  })
+  Object.entries(headers).forEach(([name, value]) => {
+    response.headers.set(name, value)
+  })
+}
 ```
 
 #### Nuxt server middleware

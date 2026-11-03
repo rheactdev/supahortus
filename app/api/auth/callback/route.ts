@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { type EmailOtpType } from '@supabase/supabase-js'
+import { getAuthRedirect } from '@/lib/auth-redirect'
 
 export async function GET(request: NextRequest) {
     // Use NextRequest's built-in nextUrl parser instead of instantiating a new URL
@@ -11,24 +12,19 @@ export async function GET(request: NextRequest) {
     // Use proper Supabase typing instead of 'as any'
     const type = searchParams.get('type') as EmailOtpType | null
 
-    // SECURE: Prevent Open Redirect Vulnerabilities
-    // Ensure the 'next' redirect is a relative path so attackers can't hijack your callback
-    let next = searchParams.get('next') ?? '/gardens'
-    if (!next.startsWith('/')) {
-        next = '/gardens'
-    }
+    const target = getAuthRedirect(searchParams.get('next'), origin)
+    const responseHeaders = new Headers()
 
-    console.log(`[auth-callback] Received: code=${!!code}, token_hash=${!!token_hash}, type=${type}, next=${next}`)
+    console.log(`[auth-callback] Received: code=${!!code}, token_hash=${!!token_hash}, type=${type}`)
 
     // Initialize the client once outside the conditionals
-    const supabase = await createClient()
+    const supabase = await createClient(responseHeaders)
 
     if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
 
         if (!error) {
-            console.log(`[auth-callback] Exchanged code for session. Redirecting to ${next}`)
-            return NextResponse.redirect(`${origin}${next}`)
+            return NextResponse.redirect(target, { headers: responseHeaders })
         }
         console.error('[auth-callback] Code exchange error:', error.message)
 
@@ -36,8 +32,7 @@ export async function GET(request: NextRequest) {
         const { error } = await supabase.auth.verifyOtp({ type, token_hash })
 
         if (!error) {
-            console.log(`[auth-callback] Verified OTP. Redirecting to ${next}`)
-            return NextResponse.redirect(`${origin}${next}`)
+            return NextResponse.redirect(target, { headers: responseHeaders })
         }
         console.error('[auth-callback] OTP verification error:', error.message)
     }
@@ -54,5 +49,5 @@ export async function GET(request: NextRequest) {
     errorUrl.searchParams.delete('next')
 
     console.warn(`[auth-callback] All verification methods failed. Redirecting to login.`)
-    return NextResponse.redirect(errorUrl)
+    return NextResponse.redirect(errorUrl, { headers: responseHeaders })
 }

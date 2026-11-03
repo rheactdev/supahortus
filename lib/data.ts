@@ -1,3 +1,4 @@
+import { getGardenStoragePrefix } from "@/lib/garden-storage";
 import { isEncryptedObject } from "@/lib/storage-encryption";
 import { storageTransferUrl } from "@/lib/storage-transfer-url";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -5,6 +6,9 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { cacheLife, cacheTag } from "next/cache";
+import type { PostgrestError } from "@supabase/supabase-js";
+
+const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,12 +97,14 @@ export async function getItems(
       config: "english"
     });
   } else if (parentId) {
+    if (!UUID_PATTERN.test(parentId)) return [];
     query = query.eq("parent_id", parentId);
   } else {
     query = query.is("parent_id", null);
   }
 
-  const { data } = await query;
+  const { data, error } = await query;
+  if (error) throw error;
   return (data as Item[]) || [];
 }
 
@@ -127,16 +133,39 @@ export async function searchAllItems(
   userId: string,
   searchQuery: string
 ): Promise<GlobalSearchResult[]> {
+  if (!searchQuery) return [];
+
+  const gardens = await readGardensForUser(userId);
+  const permissions = new Map(gardens.map((garden) => [garden.id, {
+    can_upload: garden.can_upload,
+    can_delete: garden.can_delete,
+  }]));
+  const gardenIds = [...permissions.keys()].sort();
+  if (!gardenIds.length) return [];
+
+  // Next.js supports up to 128 tags per cached result.
+  const items = gardenIds.length <= 128
+    ? await searchCachedGardenItems(gardenIds, searchQuery)
+    : await searchGardenItems(gardenIds, searchQuery);
+
+  return items.map((item) => ({
+    ...item,
+    permissions: permissions.get(item.garden_id)!,
+  }));
+}
+
+async function searchCachedGardenItems(gardenIds: string[], searchQuery: string) {
   "use cache";
   cacheLife("minutes");
-  cacheTag(`user-search-${userId}`);
+  cacheTag(...gardenIds.map((id) => `garden-${id}`));
+  return searchGardenItems(gardenIds, searchQuery);
+}
 
-  const gardens = await getGardensForUser(userId);
-  const gardenIds = gardens.map((g) => g.id);
-
-  if (!gardenIds.length || !searchQuery) return [];
-
-  const { data } = await supabaseAdmin
+async function searchGardenItems(
+  gardenIds: string[],
+  searchQuery: string,
+): Promise<SearchItemRow[]> {
+  const { data, error } = await supabaseAdmin
     .from("items")
     .select("id, garden_id, parent_id, name, type, s3_key, mime_type, created_at, gardens(name, slug)")
     .in("garden_id", gardenIds)
@@ -148,21 +177,8 @@ export async function searchAllItems(
     .order("type", { ascending: true }) // folders first
     .order("name");
 
-  // Map permissions from the fetched gardens to the results
-  const resultsWithPermissions = (
-    (data as unknown as SearchItemRow[]) || []
-  ).map((item) => {
-    const gardenData = gardens.find((g) => g.id === item.garden_id);
-    return {
-      ...item,
-      permissions: {
-        can_upload: gardenData?.can_upload || false,
-        can_delete: gardenData?.can_delete || false,
-      },
-    };
-  });
-
-  return resultsWithPermissions as GlobalSearchResult[];
+  if (error) throw error;
+  return (data ?? []) as unknown as SearchItemRow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -174,21 +190,25 @@ export async function getBreadcrumbs(
 ): Promise<BreadcrumbItem[]> {
   "use cache";
   cacheLife("hours");
-  cacheTag(`breadcrumbs-${parentId ?? "root"}`);
+  cacheTag(`garden-${gardenId}`);
 
-  if (!parentId) return [];
+  if (!parentId || !UUID_PATTERN.test(parentId)) return [];
 
   const crumbs: BreadcrumbItem[] = [];
   let currentId: string | null = parentId;
 
   while (currentId) {
-    const { data }: { data: { id: string; name: string; parent_id: string | null } | null } = await supabaseAdmin
+    const { data, error }: {
+      data: { id: string; name: string; parent_id: string | null } | null;
+      error: PostgrestError | null;
+    } = await supabaseAdmin
       .from("items")
       .select("id, name, parent_id")
       .eq("id", currentId)
       .eq("garden_id", gardenId)
-      .single();
+      .maybeSingle();
 
+    if (error) throw error;
     if (!data) break;
     crumbs.unshift({ id: data.id, name: data.name });
     currentId = data.parent_id;
@@ -206,68 +226,55 @@ export async function getGardensForUser(
   "use cache";
   cacheLife("minutes");
   cacheTag(`user-gardens-${userId}`);
+  return readGardensForUser(userId);
+}
 
-  const { data } = await supabaseAdmin
-    .from("garden_members")
-    .select("role, can_upload, can_delete, gardens(id, slug, name, created_by, created_at)")
-    .eq("user_id", userId);
+async function readGardensForUser(userId: string) {
+  const gardens: (Garden & { role: string; can_upload: boolean; can_delete: boolean })[] = [];
+  const pageSize = 500;
+  for (let offset = 0; ; ) {
+    const { data, error } = await supabaseAdmin
+      .from("garden_members")
+      .select("role, can_upload, can_delete, gardens!inner(id, slug, name, created_by, created_at)")
+      .eq("user_id", userId)
+      .order("garden_id")
+      .range(offset, offset + pageSize - 1);
 
-  if (!data) return [];
+    if (error) throw error;
+    if (!data?.length) return gardens;
 
-  return data.map((row) => {
-    const garden = row.gardens as unknown as Garden;
-    return {
-      ...garden,
-      role: row.role,
-      can_upload: row.can_upload,
-      can_delete: row.can_delete,
-    };
-  });
+    for (const row of data) {
+      gardens.push({
+        ...(row.gardens as unknown as Garden),
+        role: row.role,
+        can_upload: row.can_upload,
+        can_delete: row.can_delete,
+      });
+    }
+    offset += data.length;
+  }
 }
 
 export async function getMoveTreeForUser(
   userId: string,
 ): Promise<MoveTreeGarden[]> {
-  const { data: memberships } = await supabaseAdmin
-    .from("garden_members")
-    .select("can_upload, role, gardens(id, slug, name)")
-    .eq("user_id", userId);
-
-  if (!memberships?.length) return [];
-
-  const gardens = memberships
-    .map((membership) => {
-      const garden = membership.gardens as unknown as {
-        id: string;
-        slug: string;
-        name: string;
-      } | null;
-      if (!garden) return null;
-      return {
-        ...garden,
-        can_upload:
-          membership.role === "owner" || Boolean(membership.can_upload),
-      };
-    })
-    .filter(
-      (
-        garden,
-      ): garden is {
-        id: string;
-        slug: string;
-        name: string;
-        can_upload: boolean;
-      } => garden !== null,
-    );
+  const gardens = (await readGardensForUser(userId)).map((garden) => ({
+    id: garden.id,
+    slug: garden.slug,
+    name: garden.name,
+    can_upload: garden.role === "owner" || Boolean(garden.can_upload),
+  }));
+  if (!gardens.length) return [];
 
   const gardenIds = gardens.map((garden) => garden.id);
-  const { data: folders } = await supabaseAdmin
+  const { data: folders, error } = await supabaseAdmin
     .from("items")
     .select("id, garden_id, parent_id, name")
     .in("garden_id", gardenIds)
     .eq("type", "folder")
     .eq("status", "ready")
     .order("name");
+  if (error) throw error;
 
   const foldersByGarden = new Map<string, MoveTreeFolder[]>();
 
@@ -309,44 +316,41 @@ export async function getMoveTreeForUser(
 }
 
 // ---------------------------------------------------------------------------
-// Cached: get user's membership for a specific garden
+// Request-time authorization for a specific garden
 // ---------------------------------------------------------------------------
 export async function getGardenMembership(
   gardenId: string,
   userId: string
 ): Promise<GardenMember | null> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag(`garden-${gardenId}`);
-
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("garden_members")
     .select("garden_id, user_id, can_upload, can_delete, role")
     .eq("garden_id", gardenId)
     .eq("user_id", userId)
-    .single();
+    .maybeSingle();
 
+  if (error) throw error;
   return (data as GardenMember) || null;
 }
 
 // ---------------------------------------------------------------------------
-// Cached: batch generate presigned thumbnail URLs for image files
+// Generate fresh presigned thumbnail URLs for image files
 // ---------------------------------------------------------------------------
 export async function getThumbnailUrls(
   gardenId: string,
   itemIds: string[]
 ): Promise<Record<string, string>> {
-  "use cache";
-  cacheLife("hours");
-  cacheTag(`garden-${gardenId}`);
-
   if (itemIds.length === 0) return {};
 
-  const { data: items } = await supabaseAdmin
+  const { data: items, error } = await supabaseAdmin
     .from("items")
     .select("id, s3_key, name")
+    .eq("garden_id", gardenId)
+    .eq("type", "file")
+    .eq("status", "ready")
     .in("id", itemIds);
 
+  if (error) throw error;
   if (!items || items.length === 0) return {};
 
   const urlMap: Record<string, string> = {};
@@ -386,11 +390,12 @@ export async function getGardenMembers(
   cacheLife("minutes");
   cacheTag(`garden-${gardenId}`);
 
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("garden_members")
     .select("garden_id, user_id, can_upload, can_delete, role")
     .eq("garden_id", gardenId);
 
+  if (error) throw error;
   if (!data || data.length === 0) return [];
 
   // Resolve emails via admin API
@@ -398,9 +403,10 @@ export async function getGardenMembers(
   const enriched: (GardenMember & { email: string })[] = [];
 
   for (const member of members) {
-    const { data: userData } = await supabaseAdmin.auth.admin.getUserById(
+    const { data: userData, error } = await supabaseAdmin.auth.admin.getUserById(
       member.user_id
     );
+    if (error) throw error;
     enriched.push({
       ...member,
       email: userData?.user?.email ?? "unknown",
@@ -413,7 +419,7 @@ export async function getGardenMembers(
 export async function getGardenPublicLink(
   gardenId: string,
 ): Promise<GardenPublicLink | null> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("garden_public_links")
     .select(
       "id, garden_id, token, enabled, can_upload, can_delete, created_by, created_at, updated_at",
@@ -421,6 +427,7 @@ export async function getGardenPublicLink(
     .eq("garden_id", gardenId)
     .maybeSingle();
 
+  if (error) throw error;
   return (data as GardenPublicLink) || null;
 }
 
@@ -432,12 +439,14 @@ export async function getGarden(gardenId: string): Promise<Garden | null> {
   cacheLife("minutes");
   cacheTag(`garden-${gardenId}`);
 
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("gardens")
     .select("id, slug, name, created_by, created_at")
     .eq("id", gardenId)
-    .single();
+    .maybeSingle();
 
+  if (error) throw error;
+  if (data) cacheTag(`garden-slug-${data.slug}`);
   return (data as Garden) || null;
 }
 
@@ -449,12 +458,14 @@ export async function getGardenBySlug(slug: string): Promise<Garden | null> {
   cacheLife("minutes");
   cacheTag(`garden-slug-${slug}`);
 
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("gardens")
     .select("id, slug, name, created_by, created_at")
     .eq("slug", slug)
-    .single();
+    .maybeSingle();
 
+  if (error) throw error;
+  if (data) cacheTag(`garden-${data.id}`);
   return (data as Garden) || null;
 }
 
@@ -466,18 +477,7 @@ export async function buildS3Key(
   parentId: string | null,
   filename: string
 ): Promise<string> {
-  // Look up the garden slug for the S3 prefix
-  const { data: garden } = await supabaseAdmin
-    .from("gardens")
-    .select("slug")
-    .eq("id", gardenId)
-    .single();
-
-  if (!garden) throw new Error("Garden not found");
-
-  if (!parentId) {
-    return `hortus/${garden.slug}/${filename}`;
-  }
+  if (!parentId) return `${await getGardenStoragePrefix(gardenId)}${filename}`;
 
   const { data: parent } = await supabaseAdmin
     .from("items")

@@ -1,86 +1,123 @@
 import { serve } from "@upstash/workflow/nextjs";
-import {
-  DeleteObjectsCommand,
-} from "@aws-sdk/client-s3";
-import { s3Client, BUCKET_NAME } from "@/lib/s3";
+import { Receiver } from "@upstash/qstash";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAppBaseUrl } from "@/lib/app-url";
+import { getGardenStoragePrefix } from "@/lib/garden-storage";
+import { deleteStorageKeys } from "@/lib/storage-delete";
 
 type DeletePayload = {
   gardenId: string;
   itemId: string;
 };
 
+type StoredKeys = {
+  s3_key: string;
+  thumbnail_key: string | null;
+  preview_key: string | null;
+};
+
+async function readTarget({ gardenId, itemId }: DeletePayload) {
+  const { data, error } = await supabaseAdmin
+    .from("items")
+    .select("s3_key, thumbnail_key, preview_key, type")
+    .eq("garden_id", gardenId)
+    .eq("id", itemId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+function keysWithinPrefix(item: StoredKeys, prefix: string) {
+  return [item.s3_key, item.thumbnail_key, item.preview_key].filter(
+    (key): key is string => typeof key === "string" && key.startsWith(prefix),
+  );
+}
+
 export const { POST } = serve<DeletePayload>(
   async (context) => {
-    const { gardenId, itemId } = context.requestPayload;
+    const payload = context.requestPayload;
+    const { gardenId, itemId } = payload;
+    const target = await context.run("read-delete-target", async () => {
+      const item = await readTarget(payload);
+      if (!item) return null;
 
-    // Step 1: Fetch item and all descendant S3 keys
-    const { s3Keys } = await context.run("fetch-keys", async () => {
-      const { data: item } = await supabaseAdmin
-        .from("items")
-        .select("s3_key, thumbnail_key, preview_key, type")
-        .eq("id", itemId)
-        .single();
-
-      if (!item) throw new Error("Item not found");
-
-      let keys: string[];
-      if (item.type === "folder") {
-        const { data: descendants } = await supabaseAdmin
-          .from("items")
-          .select("s3_key, thumbnail_key, preview_key")
-          .like("s3_key", `${item.s3_key}%`);
-        keys = (descendants || []).flatMap((descendant) => [
-          descendant.s3_key,
-          ...(descendant.thumbnail_key ? [descendant.thumbnail_key] : []),
-          ...(descendant.preview_key ? [descendant.preview_key] : []),
-        ]);
-      } else {
-        keys = [
-          item.s3_key,
-          ...(item.thumbnail_key ? [item.thumbnail_key] : []),
-          ...(item.preview_key ? [item.preview_key] : []),
-        ];
+      const gardenPrefix = await getGardenStoragePrefix(gardenId);
+      if (
+        !item.s3_key.startsWith(gardenPrefix) ||
+        item.s3_key === gardenPrefix ||
+        (item.type === "folder" && !item.s3_key.endsWith("/"))
+      ) {
+        throw new Error("Item has an invalid storage path");
       }
-
-      return { s3Keys: keys, isFolder: item.type === "folder" };
+      return { item, gardenPrefix };
     });
 
-    // Step 2: Delete DB rows (CASCADE handles children for folders)
-    await context.run("delete-db", async () => {
+    if (!target) return;
+    const { item, gardenPrefix } = target;
+
+    if (item.type === "folder") {
+      const prefix = item.s3_key;
+      const escapedPrefix = prefix.replace(/[\\%_]/g, "\\$&");
+      let afterId: string | null = null;
+      let page = 0;
+
+      do {
+        const cursor: string | null = afterId;
+        afterId = await context.run(`delete-descendants-${page++}`, async (): Promise<string | null> => {
+          const current = await readTarget(payload);
+          if (current?.s3_key !== prefix) return null;
+
+          // Each row can reference up to three keys, so one page fits in a delete batch.
+          let query = supabaseAdmin
+            .from("items")
+            .select("id, s3_key, thumbnail_key, preview_key")
+            .eq("garden_id", gardenId)
+            .neq("id", itemId)
+            .like("s3_key", `${escapedPrefix}%`)
+            .order("id")
+            .limit(300);
+          if (cursor) query = query.gt("id", cursor);
+
+          const { data, error } = await query;
+          if (error) throw error;
+          if (!data?.length) return null;
+
+          const keys = data
+            .filter((descendant) => descendant.s3_key.startsWith(prefix))
+            .flatMap((descendant) => keysWithinPrefix(descendant, prefix));
+          await deleteStorageKeys([...new Set(keys)]);
+          return data[data.length - 1].id;
+        });
+      } while (afterId);
+    }
+
+    await context.run("delete-target-storage", async () => {
+      const current = await readTarget(payload);
+      if (!current || current.s3_key !== item.s3_key) return;
+
+      const prefix = item.type === "folder" ? item.s3_key : gardenPrefix;
+      await deleteStorageKeys([...new Set(keysWithinPrefix(current, prefix))]);
+    });
+
+    // Retain the item rows until storage acknowledges the deletion, so retries
+    // can find the same target and its names remain reserved during cleanup.
+    await context.run("delete-target-record", async () => {
       const { error } = await supabaseAdmin
         .from("items")
         .delete()
-        .eq("id", itemId);
+        .eq("garden_id", gardenId)
+        .eq("id", itemId)
+        .eq("s3_key", item.s3_key);
       if (error) throw error;
     });
 
-    // Step 3: Delete S3 objects in batches of 1000
-    const batches = [];
-    for (let i = 0; i < s3Keys.length; i += 1000) {
-      batches.push(s3Keys.slice(i, i + 1000));
-    }
-
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
-      await context.run(`delete-s3-batch-${i}`, async () => {
-        await s3Client.send(
-          new DeleteObjectsCommand({
-            Bucket: BUCKET_NAME,
-            Delete: { Objects: batch.map((Key) => ({ Key })) },
-          })
-        );
-      });
-    }
-
-    // Step 4: Revalidate cache
     await context.call("revalidate-cache", {
       url: `${getAppBaseUrl()}/api/revalidate?tag=garden-${gardenId}`,
       method: "POST",
     });
   },
   {
+    receiver: new Receiver({}),
     failureFunction: async ({ failStatus, failResponse }) => {
       console.error(`[workflow/delete] Failed (${failStatus}):`, failResponse);
     },

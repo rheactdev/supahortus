@@ -10,23 +10,26 @@ import {
   getMoveTreeForUser,
 } from "@/lib/data";
 import dynamic from "next/dynamic";
+import { RouteLoading } from "@/components/ui/RouteLoading";
 
 const DriveExplorer = dynamic(
   () => import("@/components/ui/DriveExplorer").then((m) => m.DriveExplorer),
   {
-    loading: () => (
-      <div className="flex justify-center p-12">
-        <span className="loading loading-ring text-primary loading-lg" />
-      </div>
-    ),
+    loading: () => <RouteLoading label="Loading garden explorer" />,
   }
 );
 
-export default async function FolderPage({
-  params,
-}: {
-  params: Promise<{ gardenSlug: string; folder: string }>;
-}) {
+type FolderPageProps = { params: Promise<{ gardenSlug: string; folder: string }> };
+
+export default function FolderPage({ params }: FolderPageProps) {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading folder" />}>
+      <FolderContents params={params} />
+    </Suspense>
+  );
+}
+
+async function FolderContents({ params }: FolderPageProps) {
   const { gardenSlug, folder: folderId } = await params;
 
   const supabase = await createClient();
@@ -62,25 +65,17 @@ export default async function FolderPage({
       : {};
 
   return (
-    <Suspense
-      fallback={
-        <div className="flex justify-center p-12">
-          <span className="loading loading-ring text-primary loading-lg" />
-        </div>
-      }
-    >
-      <DriveExplorer
-        items={items}
-        breadcrumbs={breadcrumbs}
-        thumbnailUrls={thumbnailUrls}
-        folderId={folderId}
-        gardenId={garden.id}
-        gardenSlug={gardenSlug}
-        userId={userId}
-        canUpload={membership.can_upload}
-        canDelete={membership.can_delete}
-        moveTree={moveTree}
-      />
-    </Suspense>
+    <DriveExplorer
+      items={items}
+      breadcrumbs={breadcrumbs}
+      thumbnailUrls={thumbnailUrls}
+      folderId={folderId}
+      gardenId={garden.id}
+      gardenSlug={gardenSlug}
+      userId={userId}
+      canUpload={membership.can_upload}
+      canDelete={membership.can_delete}
+      moveTree={moveTree}
+    />
   );
 }

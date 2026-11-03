@@ -3,8 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Navbar } from "@/components/ui/navbar";
 
-export const unstable_instant = false;
-
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <Suspense

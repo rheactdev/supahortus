@@ -1,5 +1,6 @@
 import { requireUploadedEncryptedObject } from "@/lib/storage-encryption";
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireGardenPermission } from "@/lib/storage-access";
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
       if (updateError) throw updateError;
     }
 
+    revalidateTag(`garden-${item.garden_id}`, { expire: 0 });
     return NextResponse.json({ confirmed: true });
   } catch {
     console.error("Upload confirmation failed");

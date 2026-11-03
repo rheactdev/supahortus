@@ -9,9 +9,10 @@ import { Trash } from "@/components/icons/liquid-glass";
 interface GardenSettingsProps {
   garden: Garden;
   userId: string;
+  storagePrefix: string;
 }
 
-export function GardenSettings({ garden, userId }: GardenSettingsProps) {
+export function GardenSettings({ garden, userId, storagePrefix }: GardenSettingsProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -99,12 +100,11 @@ export function GardenSettings({ garden, userId }: GardenSettingsProps) {
               <span className="label-text font-medium">Slug</span>
             </label>
             <label className="input input-bordered flex items-center gap-1 font-mono text-sm">
-              <span className="text-base-content/40">hortus/</span>
               <span>{garden.slug}</span>
             </label>
             <label className="label">
               <span className="label-text-alt text-base-content/50">
-                Immutable — used as S3 prefix and URL identifier
+                The slug is fixed for this garden. Storage path: {storagePrefix}
               </span>
             </label>
           </div>
@@ -151,8 +151,9 @@ export function GardenSettings({ garden, userId }: GardenSettingsProps) {
             <Trash size={20} /> Danger Zone
           </h2>
           <p className="text-sm text-base-content/70">
-            Deleting a garden permanently removes all files, folders, and member
-            access. This action cannot be undone.
+            Deleting a garden immediately removes member access and share links.
+            File cleanup runs in the background. The slug becomes available
+            again after cleanup finishes.
           </p>
           <div className="form-control w-full max-w-md">
             <label className="label">
@@ -180,7 +181,7 @@ export function GardenSettings({ garden, userId }: GardenSettingsProps) {
               ) : (
                 <>
                   <Trash size={16} />
-                  Delete Garden Permanently
+                  Delete Garden
                 </>
               )}
             </button>

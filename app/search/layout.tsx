@@ -1,14 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Navbar } from "@/components/ui/navbar";
+import { Suspense, type ReactNode } from "react";
+import { RouteLoading } from "@/components/ui/RouteLoading";
 
-export const unstable_instant = false;
+export default function SearchLayout({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading search" />}>
+      <AuthenticatedSearchLayout>{children}</AuthenticatedSearchLayout>
+    </Suspense>
+  );
+}
 
-export default async function SearchLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+async function AuthenticatedSearchLayout({ children }: { children: ReactNode }) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 

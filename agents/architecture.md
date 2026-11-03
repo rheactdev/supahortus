@@ -1,5 +1,7 @@
 # Supahortus Architecture
 
+> Historical architecture snapshot from the initial multi-tenant rollout. See the [README](../README.md) and [Supabase migrations](../supabase/migrations) for current routes, storage prefixes, and database behavior.
+
 ## Stack
 - Next.js App Router, Supabase (Postgres + Auth), Backblaze B2 (S3 API), Upstash Workflow
 - Serverless only — no VPS

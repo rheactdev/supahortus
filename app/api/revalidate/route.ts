@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { updateTag } from "next/cache";
+import { revalidateTag } from "next/cache";
 import { Receiver } from "@upstash/qstash";
 
 const receiver = new Receiver({
@@ -12,17 +12,13 @@ export async function POST(request: Request) {
   const body = await request.text();
   const signature = request.headers.get("upstash-signature");
 
-  if (signature) {
-    try {
-      await receiver.verify({ body, signature, url: request.url });
-    } catch {
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-    }
-  } else {
-    // In local dev, Upstash Workflow might not sign requests
-    if (process.env.NODE_ENV === "production") {
-      return NextResponse.json({ error: "Missing signature" }, { status: 401 });
-    }
+  if (!signature) {
+    return NextResponse.json({ error: "Missing signature" }, { status: 401 });
+  }
+  try {
+    await receiver.verify({ body, signature, url: request.url });
+  } catch {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -35,6 +31,6 @@ export async function POST(request: Request) {
     );
   }
 
-  updateTag(tag);
+  revalidateTag(tag, { expire: 0 });
   return NextResponse.json({ revalidated: true, tag });
 }

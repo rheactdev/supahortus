@@ -2,21 +2,31 @@ import { createClient } from "@/lib/supabase/server";
 import { searchAllItems, getThumbnailUrls } from "@/lib/data";
 import { SearchResults } from "@/components/ui/SearchResults";
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
+import { RouteLoading } from "@/components/ui/RouteLoading";
 
-export default async function SearchPage({
-  searchParams,
-}: {
+type SearchPageProps = {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
-}) {
+};
+
+export default function SearchPage({ searchParams }: SearchPageProps) {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading search results" />}>
+      <SearchPageContents searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+async function SearchPageContents({ searchParams }: SearchPageProps) {
   const { q } = await searchParams;
   const searchQuery = typeof q === 'string' ? q : '';
 
   const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
-  const userId = data.user?.id;
+  const { data } = await supabase.auth.getClaims();
+  const userId = data?.claims?.sub;
 
-  if (!userId) {
-    return <div>Please log in to search.</div>;
+  if (typeof userId !== "string") {
+    redirect("/auth/login");
   }
 
   const results = await searchAllItems(userId, searchQuery);
@@ -52,9 +62,7 @@ export default async function SearchPage({
 
       <div className="mt-4">
         {searchQuery && (
-          <Suspense fallback={<div className="loading loading-spinner"></div>}>
-            <SearchResults results={results} thumbnailUrls={thumbnailUrls} userId={userId} />
-          </Suspense>
+          <SearchResults results={results} thumbnailUrls={thumbnailUrls} userId={userId} />
         )}
       </div>
     </div>

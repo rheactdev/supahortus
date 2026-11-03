@@ -1,3 +1,4 @@
+> Historical storage design proposal. See the [README](../README.md) for the current storage layout and rollout.
 
 Strict Constraint: **The R2 bucket must maintain the exact, human-readable folder structure 24/7.** If everything burns down, you should be able to open your terminal, type `rclone sync r2-bucket: ~/Desktop`, and have your exact files instantly. Zero custom scripts required.
 

@@ -1,4 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
+import { Suspense } from "react";
+import { getAdminUserId } from "@/lib/admin-access";
+import { RouteLoading } from "@/components/ui/RouteLoading";
 import { redirect } from "next/navigation";
 import {
   getGardenBySlug,
@@ -8,21 +10,23 @@ import {
 } from "@/lib/data";
 import { GardenSettings } from "@/components/ui/GardenSettings";
 import { MemberManager } from "@/components/ui/MemberManager";
+import { getGardenStoragePrefix } from "@/lib/garden-storage";
 import Link from "next/link";
 
-export default async function SettingsPage({
-  params,
-}: {
-  params: Promise<{ gardenSlug: string }>;
-}) {
+type SettingsPageProps = { params: Promise<{ gardenSlug: string }> };
+
+export default function SettingsPage({ params }: SettingsPageProps) {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading garden settings" />}>
+      <GardenSettingsContents params={params} />
+    </Suspense>
+  );
+}
+
+async function GardenSettingsContents({ params }: SettingsPageProps) {
+  const userId = await getAdminUserId();
+  if (!userId) redirect("/my-gardens");
   const { gardenSlug } = await params;
-
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-
-  if (!data?.claims) return redirect("/auth/login");
-
-  const userId = data.claims.sub as string;
 
   const garden = await getGardenBySlug(gardenSlug);
   if (!garden) return redirect("/admin/gardens");
@@ -32,9 +36,10 @@ export default async function SettingsPage({
     return redirect("/my-gardens");
   }
 
-  const [members, publicLink] = await Promise.all([
+  const [members, publicLink, storagePrefix] = await Promise.all([
     getGardenMembers(garden.id),
     getGardenPublicLink(garden.id),
+    getGardenStoragePrefix(garden.id),
   ]);
 
   return (
@@ -56,7 +61,7 @@ export default async function SettingsPage({
         </div>
       </div>
 
-      <GardenSettings garden={garden} userId={userId} />
+      <GardenSettings garden={garden} userId={userId} storagePrefix={storagePrefix} />
 
       <div className="divider" />
 

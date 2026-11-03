@@ -1,5 +1,7 @@
 # Plan: DB-First Migration — COMPLETED
 
+> Historical migration record. See the [README](../README.md) and [Supabase migrations](../supabase/migrations) for the current design.
+
 ## TL;DR
 Migrate from S3-prefix-based file listing to DB-first using the existing `items` adjacency list table with `s3_key`. **Let Supabase RLS do all access control** — delete `lib/auth.ts` entirely. Every API route shrinks to: authenticate → query/mutate Supabase → (optionally) sign an S3 URL. QStash handles the only hard problem (folder rename reconciliation).
 

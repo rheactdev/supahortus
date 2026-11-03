@@ -1,8 +1,22 @@
 import Link from "next/link";
 import { Folder } from "@/components/icons/liquid-glass";
 import { S3SyncButton } from "@/components/ui/S3SyncButton";
+import { Suspense } from "react";
+import { redirect } from "next/navigation";
+import { getAdminUserId } from "@/lib/admin-access";
+import { RouteLoading } from "@/components/ui/RouteLoading";
 
-export default async function AdminDashboardPage() {
+export default function AdminDashboardPage() {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading admin dashboard" />}>
+      <AdminDashboard />
+    </Suspense>
+  );
+}
+
+async function AdminDashboard() {
+  if (!(await getAdminUserId())) redirect("/my-gardens");
+
   return (
     <div className="w-full h-full flex flex-col">
       <div className="flex items-center gap-4 mb-8 border-b border-base-content/10 pb-6">

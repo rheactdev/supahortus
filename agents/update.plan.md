@@ -1,3 +1,5 @@
+> Historical multi-tenant migration plan. See the [README](../README.md), [current application routes](../app), and [database migrations](../supabase/migrations) for implementation guidance.
+
 Here is the complete, modular instruction plan for the **Supahortus** multi-tenant file manager rewrite.
 
 Structured in strict, sequential phases.

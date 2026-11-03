@@ -1,14 +1,18 @@
 import { redirect } from "next/navigation";
 import { Navbar } from "@/components/ui/navbar";
 import { getAdminUserId } from "@/lib/admin-access";
+import { Suspense, type ReactNode } from "react";
+import { RouteLoading } from "@/components/ui/RouteLoading";
 
-export const unstable_instant = false;
+export default function DashboardLayout({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<RouteLoading label="Loading admin dashboard" />}>
+      <AdminLayout>{children}</AdminLayout>
+    </Suspense>
+  );
+}
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+async function AdminLayout({ children }: { children: ReactNode }) {
   const adminUserId = await getAdminUserId();
   if (!adminUserId) {
     redirect("/my-gardens");

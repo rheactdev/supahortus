@@ -5,6 +5,7 @@ export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   });
+  const authHeaders = new Headers();
 
   // With Fluid compute, don't put this client in a global environment
   // variable. Always create a new one on each request.
@@ -16,15 +17,20 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet, headers) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );
+          const previousCookies = supabaseResponse.cookies.getAll();
           supabaseResponse = NextResponse.next({
             request,
           });
+          previousCookies.forEach((cookie) => supabaseResponse.cookies.set(cookie));
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options),
+          );
+          Object.entries(headers).forEach(([name, value]) =>
+            authHeaders.set(name, value),
           );
         },
       },
@@ -52,21 +58,14 @@ export async function updateSession(request: NextRequest) {
     console.log(`[middleware] Redirecting unauthenticated request to ${request.nextUrl.pathname} to login`);
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
-    return NextResponse.redirect(url);
+    const redirectResponse = NextResponse.redirect(url);
+    supabaseResponse.cookies.getAll().forEach((cookie) =>
+      redirectResponse.cookies.set(cookie),
+    );
+    authHeaders.forEach((value, name) => redirectResponse.headers.set(name, value));
+    return redirectResponse;
   }
 
-  // IMPORTANT: You *must* return the supabaseResponse object as it is.
-  // If you're creating a new response object with NextResponse.next() make sure to:
-  // 1. Pass the request in it, like so:
-  //    const myNewResponse = NextResponse.next({ request })
-  // 2. Copy over the cookies, like so:
-  //    myNewResponse.cookies.setAll(supabaseResponse.cookies.getAll())
-  // 3. Change the myNewResponse object to fit your needs, but avoid changing
-  //    the cookies!
-  // 4. Finally:
-  //    return myNewResponse
-  // If this is not done, you may be causing the browser and server to go out
-  // of sync and terminate the user's session prematurely!
-
+  authHeaders.forEach((value, name) => supabaseResponse.headers.set(name, value));
   return supabaseResponse;
 }
