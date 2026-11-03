@@ -32,6 +32,18 @@ export function claimsAreAdmin(claims: unknown): boolean {
   return metadata.role === "admin" || metadata.is_admin === true;
 }
 
+export function userIsAdmin(user: {
+  id: string;
+  app_metadata: unknown;
+  is_anonymous?: boolean;
+}): boolean {
+  return claimsAreAdmin({
+    sub: user.id,
+    app_metadata: user.app_metadata,
+    is_anonymous: user.is_anonymous,
+  });
+}
+
 export async function getAdminUserId(): Promise<string | null> {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
