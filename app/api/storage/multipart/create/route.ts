@@ -3,9 +3,9 @@ import { NextResponse } from "next/server";
 import { CreateMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildS3Key } from "@/lib/data";
 import { requireGardenPermission } from "@/lib/storage-access";
+import { issueUploadTicket } from "@/lib/upload-ticket";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -33,38 +33,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No upload permission" }, { status: 403 });
     }
 
-    const s3Key = newUploadKey(await buildS3Key(gardenId, parentId || null, filename));
-
-    // Insert pending item record
-    const { data: item, error: insertError } = await supabaseAdmin
-      .from("items")
-      .insert({
-        name: filename,
-        s3_key: s3Key,
-        parent_id: parentId || null,
-        garden_id: gardenId,
-        type: "file",
-        mime_type: contentType || "application/octet-stream",
-      })
-      .select("id")
-      .single();
-
-    if (insertError) throw insertError;
+    const destinationParentId = parentId || null;
+    const key = newUploadKey(await buildS3Key(gardenId, destinationParentId, filename));
+    const uploadContentType = typeof contentType === "string" && contentType
+      ? contentType : "application/octet-stream";
 
     // Create S3 multipart upload
-    const result = await s3Client.send(
+    const { UploadId: uploadId } = await s3Client.send(
       new CreateMultipartUploadCommand({
         Bucket: BUCKET_NAME,
-        Key: s3Key,
-        ...encryptionInput(s3Key),
-        ContentType: contentType || "application/octet-stream",
+        Key: key,
+        ...encryptionInput(key),
+        ContentType: uploadContentType,
       })
     );
 
-    return NextResponse.json({
-      uploadId: result.UploadId,
-      key: s3Key,
-      itemId: item.id,
+    if (!uploadId) throw new Error("B2 did not return an upload ID");
+
+    const uploadToken = issueUploadTicket({
+      userId,
+      gardenId,
+      parentId: destinationParentId,
+      filename,
+      contentType: uploadContentType,
+      key,
+      uploadId,
+    });
+
+    return NextResponse.json({ uploadId, key, uploadToken }, {
+      headers: { "Cache-Control": "no-store" },
     });
   } catch {
     console.error("Multipart initialization failed");

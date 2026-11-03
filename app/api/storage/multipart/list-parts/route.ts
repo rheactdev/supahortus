@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { ListPartsCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
-import { requirePendingUpload } from "@/lib/storage-access";
+import { requireMultipartUpload } from "../access";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -17,8 +17,9 @@ export async function GET(request: Request) {
   const uploadId = searchParams.get("uploadId");
   const key = searchParams.get("key");
   const itemId = searchParams.get("itemId");
+  const uploadToken = searchParams.get("uploadToken");
 
-  if (!uploadId || !key || !itemId) {
+  if (!uploadId || !key || (!uploadToken && !itemId)) {
     return NextResponse.json(
       { error: "Missing required parameters" },
       { status: 400 }
@@ -26,7 +27,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    await requirePendingUpload(itemId, key, userId);
+    await requireMultipartUpload(uploadToken, itemId, key, uploadId, userId);
 
     const result = await s3Client.send(
       new ListPartsCommand({

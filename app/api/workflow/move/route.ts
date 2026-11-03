@@ -1,7 +1,7 @@
 import { serve } from "@upstash/workflow/nextjs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAppBaseUrl } from "@/lib/app-url";
-import { preserveEncryption, relocatedThumbnailKey } from "@/lib/storage-encryption";
+import { preserveUploadKeyMarker, relocatedThumbnailKey } from "@/lib/storage-encryption";
 import { getRelocationDescendants, relocateStoredItem, replaceStoragePrefix } from "@/lib/storage-relocation";
 
 type MovePayload = {
@@ -23,7 +23,7 @@ export const { POST } = serve<MovePayload>(async (context) => {
     if (item.type !== "folder") {
       return {
         item,
-        destination: preserveEncryption(item.s3_key, newParentS3Key + item.name),
+        destination: preserveUploadKeyMarker(item.s3_key, newParentS3Key + item.name),
         descendants: [],
       };
     }

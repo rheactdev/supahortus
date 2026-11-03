@@ -263,7 +263,7 @@ export function DriveExplorer({
   }, [files, viewConfig.sortBy, viewConfig.sortDir]);
 
   return (
-    <div className="flex-1 flex flex-col gap-6 p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
+    <div className="flex-1 flex flex-col gap-6 max-w-[1600px] mx-auto w-full">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <Breadcrumb breadcrumbs={breadcrumbs} basePath={basePath} />
         <div className="flex gap-2 items-center flex-wrap">

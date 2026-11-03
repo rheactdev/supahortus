@@ -69,6 +69,7 @@ export const QueueUpload = ({ files, onRemove }: QueueUploadProps) => {
                                     <span>{formatSize(file.size)}</span>
                                     {file.progress?.uploadComplete && <span className="text-success font-medium">Done</span>}
                                 </div>
+                                {file.error && <p className="text-xs text-error">{file.error}</p>}
                                 <div className={`transition-opacity mt-1 ${Number(file.progress?.bytesUploaded) > 0 && !file.progress?.uploadComplete ? 'opacity-100' : 'opacity-0'} h-1`}>
                                     <progress className="progress progress-primary w-full h-full" value={file.progress?.percentage || 0} max="100"></progress>
                                 </div>

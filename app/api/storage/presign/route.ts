@@ -3,9 +3,9 @@ import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildS3Key } from "@/lib/data";
 import { requireGardenPermission } from "@/lib/storage-access";
+import { issueUploadTicket } from "@/lib/upload-ticket";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -16,6 +16,7 @@ export async function POST(request: Request) {
   }
 
   const userId = authData.claims.sub as string;
+  let stage = "read upload request";
 
   try {
     const { filename, contentType, parentId, gardenId } = await request.json();
@@ -33,8 +34,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No upload permission" }, { status: 403 });
     }
 
-    const s3Key = newUploadKey(await buildS3Key(gardenId, parentId || null, filename));
+    stage = "resolve upload destination";
+    const destination = await buildS3Key(gardenId, parentId || null, filename);
 
+    stage = "prepare storage encryption";
+    const s3Key = newUploadKey(destination);
     const uploadContentType = typeof contentType === "string" && contentType
       ? contentType : "application/octet-stream";
     const command = new PutObjectCommand({
@@ -43,32 +47,27 @@ export async function POST(request: Request) {
       ...encryptionInput(s3Key),
       ContentType: uploadContentType,
     });
+    stage = "sign storage request";
     const { url, headers } = await signObject(command);
-
-    // Insert pending item record
-    const { data: item, error: insertError } = await supabaseAdmin
-      .from("items")
-      .insert({
-        name: filename,
-        s3_key: s3Key,
-        parent_id: parentId || null,
-        garden_id: gardenId,
-        type: "file",
-        mime_type: uploadContentType,
-      })
-      .select("id")
-      .single();
-
-    if (insertError) throw insertError;
 
     return NextResponse.json({
       method: "PUT",
       url,
       headers: { ...headers, "Content-Type": uploadContentType },
-      itemId: item.id,
+      uploadToken: issueUploadTicket({
+        userId, gardenId, parentId: parentId || null, filename, contentType: uploadContentType, key: s3Key,
+      }),
     }, { headers: { "Cache-Control": "no-store" } });
-  } catch {
-    console.error("Storage upload signing failed");
+  } catch (error) {
+    // SDK errors can contain signed request details, so log only the stage and database code.
+    const databaseError = stage === "resolve upload destination" && error instanceof Error
+      ? error.cause
+      : undefined;
+    const code = databaseError && typeof databaseError === "object" && "code" in databaseError
+      && typeof databaseError.code === "string" && /^(?:[0-9A-Z]{5}|PGRST\d{3})$/.test(databaseError.code)
+      ? databaseError.code
+      : undefined;
+    console.error("Storage upload signing failed", { stage, code });
     return NextResponse.json(
       { error: "Failed to generate presigned URL" },
       { status: 500 }

@@ -24,6 +24,16 @@ function basename(key: string) {
   return key.slice(key.lastIndexOf("/") + 1);
 }
 
+function uploadKeyMarker(key: string) {
+  return storageKeyMarker(key)?.[0]
+    ?? basename(key).match(/^\.upload~[0-9a-f-]{36}~/)?.[0]
+    ?? "";
+}
+
+function isReservedStorageName(name: string) {
+  return name.startsWith(".ssec~") || name.startsWith(".upload~");
+}
+
 function masterKey(version: string) {
   const value = process.env[`S3_SSE_C_KEY_${version}`];
   if (!value || !/^[A-Za-z0-9+/]{43}=$/.test(value)) {
@@ -34,20 +44,21 @@ function masterKey(version: string) {
 
 export function newUploadKey(key: string) {
   const name = basename(key);
-  if (!name || name.startsWith(".ssec~")) throw new Error("Invalid upload name");
+  if (!name || isReservedStorageName(name)) throw new Error("Invalid upload name");
   const version = process.env.S3_SSE_C_ACTIVE_VERSION;
-  if (!version) return key;
-  if (!versionPattern.test(version)) throw new Error("Invalid SSE-C active version");
-  masterKey(version);
-  return key.slice(0, -name.length) + `.ssec~${version}~${randomUUID()}~${name}`;
+  if (version) {
+    if (!versionPattern.test(version)) throw new Error("Invalid SSE-C active version");
+    masterKey(version);
+  }
+  const marker = version ? `.ssec~${version}~` : ".upload~";
+  return key.slice(0, -name.length) + `${marker}${randomUUID()}~${name}`;
 }
 
-export function preserveEncryption(source: string, destination: string) {
-  const prefix = storageKeyMarker(source)?.[0];
+export function preserveUploadKeyMarker(source: string, destination: string) {
   const name = basename(destination);
   if (!name) return destination;
-  if (name.startsWith(".ssec~")) throw new Error("Reserved storage filename");
-  return prefix ? destination.slice(0, -name.length) + prefix + name : destination;
+  if (isReservedStorageName(name)) throw new Error("Reserved storage filename");
+  return destination.slice(0, -name.length) + uploadKeyMarker(source) + name;
 }
 
 export function encryptionInput(key: string) {
@@ -99,19 +110,20 @@ export async function signObject(
 }
 
 export function relocatedThumbnailKey(source: string, originalDestination: string) {
-  const marker = storageKeyMarker(originalDestination)?.[0] ?? "";
+  const marker = uploadKeyMarker(originalDestination);
   const path = originalDestination.slice(0, originalDestination.lastIndexOf("/") + 1);
   const name = basename(originalDestination).slice(marker.length);
-  return preserveEncryption(source, path + name.replace(/\.[^/.]+$/, "") + "_thumb.webp");
+  return preserveUploadKeyMarker(source, path + name.replace(/\.[^/.]+$/, "") + "_thumb.webp");
 }
 
-export async function requireUploadedEncryptedObject(key: string) {
+export async function requireUploadedObject(key: string) {
   const input = encryptionInput(key);
-  if (!input.SSECustomerKey) return;
   const object = await s3Client.send(new HeadObjectCommand({
     Bucket: BUCKET_NAME, Key: key, ...input,
-  })).catch(() => { throw new Error("Could not read encrypted object metadata"); });
-  if (object.ServerSideEncryption === "AES256") throw new Error("Object was stored with SSE-B2");
+  })).catch(() => { throw new Error("Could not read uploaded object metadata"); });
+  if (input.SSECustomerKey && object.ServerSideEncryption === "AES256") {
+    throw new Error("Object was stored with SSE-B2");
+  }
 }
 
 export async function copyStorageObject(source: string, destination: string) {

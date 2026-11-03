@@ -3,8 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { getGardensForUser } from "@/lib/data";
 import Link from "next/link";
 import { Folder } from "@/components/icons/liquid-glass";
-import { CreateGardenDialog } from "@/components/ui/CreateGardenDialog";
-import { claimsAreAdmin } from "@/lib/admin-access";
 import { RouteLoading } from "@/components/ui/RouteLoading";
 
 export default function DashboardPage() {
@@ -23,28 +21,15 @@ async function GardensDashboard() {
 
   const userId = data.claims.sub as string;
   const gardens = await getGardensForUser(userId);
-  const canCreateGarden = claimsAreAdmin(data.claims);
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="flex justify-between items-end mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Your Gardens</h1>
-          <p className="text-base-content/60 mt-1">
-            {canCreateGarden
-              ? "Select a garden to browse files, or create a new one."
-              : "Select a garden to browse files."}
-          </p>
-        </div>
-        {canCreateGarden && <CreateGardenDialog />}
-      </div>
-
       {gardens.length === 0 ? (
         <div className="flex flex-col flex-1 justify-center items-center text-base-content/40 gap-4 min-h-[400px]">
           <Folder size={64} className="opacity-20" />
           <p className="font-semibold text-lg">No gardens yet</p>
           <p className="text-sm">
-            {canCreateGarden ? "Create your first garden to get started" : "Gardens you can access will appear here."}
+            Gardens you can access will appear here.
           </p>
         </div>
       ) : (

@@ -1,9 +1,9 @@
-import { isEncryptedObject, requireUploadedEncryptedObject } from "@/lib/storage-encryption";
+import { isEncryptedObject, requireUploadedObject } from "@/lib/storage-encryption";
 import { NextResponse } from "next/server";
 import { CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
-import { requirePendingUpload } from "@/lib/storage-access";
+import { requireMultipartUpload } from "../access";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -15,16 +15,16 @@ export async function POST(request: Request) {
   const userId = authData.claims.sub as string;
 
   try {
-    const { uploadId, key, parts, itemId } = await request.json();
+    const { uploadId, key, parts, itemId, uploadToken } = await request.json();
 
-    if (!uploadId || !key || !parts || !itemId) {
+    if (!uploadId || !key || !parts || (!uploadToken && !itemId)) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
     }
 
-    await requirePendingUpload(itemId, key, userId);
+    const { legacyItemId } = await requireMultipartUpload(uploadToken, itemId, key, uploadId, userId);
 
     try {
       await s3Client.send(
@@ -41,9 +41,9 @@ export async function POST(request: Request) {
         })
       );
     } catch (error) {
-      if (!isEncryptedObject(key)) throw error;
+      if (legacyItemId && !isEncryptedObject(key)) throw error;
       // The completion response may have been lost after B2 committed the object.
-      await requireUploadedEncryptedObject(key);
+      await requireUploadedObject(key);
     }
 
     return NextResponse.json({ completed: true });

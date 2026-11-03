@@ -10,11 +10,25 @@ import { QueueUpload } from "./queueupload";
 
 const MULTIPART_THRESHOLD = 50 * 1024 * 1024; // 50 MB
 
+async function readUploadResponse(response: Response, fallback: string) {
+  if (response.ok) return response.json();
+
+  const data = await response.json().catch(() => null);
+  const message = typeof data?.error === "string" ? data.error : fallback;
+  throw new Error(`${message} (HTTP ${response.status})`);
+}
+
 export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId: string, parentId: string | null, onUploadSuccess: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
   const parentIdRef = useRef(parentId);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const itemIdMap = useRef(new Map<string, string>());
+  const uploadTokens = useRef(new Map<string, string>());
+
+  function requireUploadToken(fileId: string) {
+    const token = uploadTokens.current.get(fileId);
+    if (!token) throw new Error("Upload authorization is missing");
+    return token;
+  }
 
   useEffect(() => {
     parentIdRef.current = parentId;
@@ -38,10 +52,12 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
           gardenId,
         }),
       });
-      if (!res.ok) throw new Error("Upload signing failed");
-      const data = await res.json();
-      itemIdMap.current.set(file.id, data.itemId);
-      return data;
+      const { uploadToken, method, url, headers } = await readUploadResponse(res, "Upload signing failed");
+      if (typeof uploadToken !== "string" || !uploadToken) {
+        throw new Error("Upload authorization is missing");
+      }
+      uploadTokens.current.set(file.id, uploadToken);
+      return { method, url, headers };
     },
 
     // --- Multipart upload (files > 50 MB) ---
@@ -56,19 +72,20 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
           gardenId,
         }),
       });
-      if (!res.ok) throw new Error("Multipart initialization failed");
-      const data = await res.json();
-      itemIdMap.current.set(file.id, data.itemId);
+      const data = await readUploadResponse(res, "Multipart initialization failed");
+      if (typeof data.uploadToken !== "string" || !data.uploadToken) {
+        throw new Error("Upload authorization is missing");
+      }
+      uploadTokens.current.set(file.id, data.uploadToken);
       return { uploadId: data.uploadId, key: data.key };
     },
 
     async signPart(file, { uploadId, key, partNumber }) {
-      const itemId = itemIdMap.current.get(file.id) ?? "";
       const params = new URLSearchParams({
         uploadId,
         key,
         partNumber: String(partNumber),
-        itemId,
+        uploadToken: requireUploadToken(file.id),
       });
       const res = await fetch(`/api/storage/multipart/sign-part?${params}`);
       if (!res.ok) throw new Error("Multipart signing failed");
@@ -76,11 +93,10 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
     },
 
     async listParts(file, { uploadId, key }) {
-      const itemId = itemIdMap.current.get(file.id) ?? "";
       const params = new URLSearchParams({
         uploadId: uploadId ?? "",
         key,
-        itemId,
+        uploadToken: requireUploadToken(file.id),
       });
       const res = await fetch(`/api/storage/multipart/list-parts?${params}`);
       if (!res.ok) throw new Error("Could not list uploaded parts");
@@ -88,22 +104,23 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
     },
 
     async completeMultipartUpload(file, { uploadId, key, parts }) {
-      const itemId = itemIdMap.current.get(file.id);
+      const uploadToken = requireUploadToken(file.id);
       const res = await fetch("/api/storage/multipart/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadId, key, parts, itemId }),
+        body: JSON.stringify({ uploadId, key, parts, uploadToken }),
       });
       if (!res.ok) throw new Error("Multipart completion failed");
       return {};
     },
 
     async abortMultipartUpload(file, { uploadId, key }) {
-      const itemId = itemIdMap.current.get(file.id);
+      const uploadToken = uploadTokens.current.get(file.id);
+      if (!uploadToken) return;
       await fetch("/api/storage/multipart/abort", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadId, key, itemId }),
+        body: JSON.stringify({ uploadId, key, uploadToken }),
       });
     },
   }).use(ThumbnailGenerator, {
@@ -122,15 +139,15 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
       if (!files.length) return;
 
       const confirmations = await Promise.allSettled(files.map(async (file) => {
-        const itemId = itemIdMap.current.get(file.id);
-        if (!itemId) return;
+        const uploadToken = uploadTokens.current.get(file.id);
+        if (!uploadToken) throw new Error("Upload authorization is missing");
         const response = await fetch("/api/storage/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ itemId }),
+          body: JSON.stringify({ uploadToken }),
         });
         if (!response.ok) throw new Error("Upload confirmation failed");
-        itemIdMap.current.delete(file.id);
+        uploadTokens.current.delete(file.id);
       }));
 
       if (confirmations.some(({ status }) => status === "rejected")) {
@@ -198,6 +215,7 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
               <form method="dialog" className="flex gap-2">
                 <button className="btn btn-ghost" onClick={handleClose}>Cancel</button>
                 <button
+                  type="button"
                   onClick={() => uppy.upload()}
                   className="btn btn-primary"
                   disabled={fileArray.length === 0 || fileArray.every(f => f.progress.uploadComplete)}

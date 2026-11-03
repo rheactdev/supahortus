@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 
 /**
  * Especially important if using Fluid compute: Don't put this client in a
@@ -7,6 +8,8 @@ import { cookies } from "next/headers";
  * it.
  */
 export async function createClient(responseHeaders?: Headers) {
+  // Supabase Auth checks session expiry against the current time.
+  await connection();
   const cookieStore = await cookies();
 
   return createServerClient(

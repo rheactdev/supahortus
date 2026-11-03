@@ -1,6 +1,6 @@
 "use server";
 
-import { preserveEncryption, relocatedThumbnailKey } from "@/lib/storage-encryption";
+import { preserveUploadKeyMarker, relocatedThumbnailKey } from "@/lib/storage-encryption";
 
 import { relocateStoredItem } from "@/lib/storage-relocation";
 import { updateTag } from "next/cache";
@@ -440,7 +440,7 @@ export async function renameItem(
       retries: 3,
     });
   } else {
-    newS3Key = preserveEncryption(item.s3_key, newS3Key);
+    newS3Key = preserveUploadKeyMarker(item.s3_key, newS3Key);
     if (newS3Key === item.s3_key) return;
     const thumbnailKey = item.thumbnail_key && relocatedThumbnailKey(item.thumbnail_key, newS3Key);
     await relocateStoredItem(item, newS3Key, thumbnailKey, { name: newName });

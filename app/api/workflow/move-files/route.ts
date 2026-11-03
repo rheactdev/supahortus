@@ -1,4 +1,4 @@
-import { copyStorageObject, preserveEncryption, relocatedThumbnailKey } from "@/lib/storage-encryption";
+import { copyStorageObject, preserveUploadKeyMarker, relocatedThumbnailKey } from "@/lib/storage-encryption";
 import { serve } from "@upstash/workflow/nextjs";
 import {
   DeleteObjectsCommand,
@@ -77,7 +77,7 @@ export const { POST } = serve<MoveFilesPayload>(
       }
 
       const prepared: FileMove[] = data.map((item) => {
-        const newS3Key = preserveEncryption(item.s3_key, `${targetParentS3Key}${item.name}`);
+        const newS3Key = preserveUploadKeyMarker(item.s3_key, `${targetParentS3Key}${item.name}`);
         return {
           id: item.id,
           oldS3Key: item.s3_key,

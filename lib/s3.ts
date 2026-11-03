@@ -11,6 +11,8 @@ export const s3Client = new S3Client({
     accessKeyId: process.env.S3_ACCESS_KEY,
     secretAccessKey: process.env.S3_SECRET,
   },
+  // Presigned uploads send the body from the browser after signing.
+  requestChecksumCalculation: "WHEN_REQUIRED",
   forcePathStyle: false, // Must be false for virtual-hosted-style paths so B2 can correctly map CORS rules
 });
 

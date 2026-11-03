@@ -9,6 +9,6 @@ export async function getGardenStoragePrefix(gardenId: string): Promise<string> 
     .eq("id", gardenId)
     .single();
 
-  if (error || !data) throw new Error("Garden not found");
+  if (error || !data) throw new Error("Garden not found", { cause: error });
   return data.storage_prefix;
 }
