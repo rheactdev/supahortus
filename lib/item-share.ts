@@ -48,7 +48,7 @@ export async function getItemShareContext(
   const { data: root } = await supabaseAdmin
     .from("items")
     .select(
-      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, mime_type, created_at",
+      "id, garden_id, parent_id, name, type, s3_key, card_thumbnail_key, thumbnail_key, mime_type, created_at",
     )
     .eq("id", share.item_id)
     .eq("status", "ready")

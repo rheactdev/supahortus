@@ -2,7 +2,7 @@ export const STORAGE_TRANSFER_PATH = "/api/storage/transfer";
 
 export function storageTransferUrl(
   id: string,
-  asset: "original" | "thumbnail",
+  asset: "original" | "thumbnail" | "preview",
   options: { download?: boolean; share?: string } = {},
 ) {
   const params = new URLSearchParams({ id, asset });

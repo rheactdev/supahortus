@@ -73,11 +73,15 @@ When a garden is deleted, cleanup waits for existing upload URLs to expire, abor
 ### S3 Security
 Uploads and downloads go directly between the browser and B2 using presigned URLs. Encrypted browser reads use a service worker that intercepts only the storage transfer endpoint, adds the object-specific SSE-C headers, and streams the B2 response. The app server issues transfer credentials after checking access.
 
-#### Photoshop and Affinity thumbnails
+#### Card thumbnails and design previews
 
-Set `IMAGE_PROCESSOR_URL` to the processor's HTTPS base URL and `PROCESSOR_SECRET` to its bearer token. For encrypted files, `POST /process` receives `sourceHeaders` and `destinationHeaders` alongside `sourceUrl`, `destinationUrl`, and `fileType` (`psd` or `af`). The processor must forward the supplied headers to the corresponding B2 GET and PUT, set the PUT content type to `image/webp`, and return success after B2 accepts the output. Treat the URLs and headers as credentials and keep them out of logs.
+The background workflow stores a WebP up to 480 × 480 pixels for JPEG, PNG, Photoshop, and Affinity cards. Photoshop and Affinity keep a separate larger WebP for the preview modal. Existing design previews are reused when generating the smaller version. JPEG and PNG previews and all file downloads use the original file.
 
-Configure the QStash signing keys before enabling the processor. Saved thumbnails are reused. Files awaiting a thumbnail show a file icon, and users with upload access can queue generation from the file menu. Office files are download-only.
+Card thumbnail generation accepts sources up to 64 MiB and 64 megapixels. Files above either limit use the existing grid fallback.
+
+Configure the QStash token and signing keys for thumbnail jobs. To generate missing large design previews, set `IMAGE_PROCESSOR_URL` to the processor's HTTPS base URL and `PROCESSOR_SECRET` to its bearer token. For encrypted files, `POST /process` receives `sourceHeaders` and `destinationHeaders` alongside `sourceUrl`, `destinationUrl`, and `fileType` (`psd` or `af`). The processor must forward the supplied headers to the corresponding B2 GET and PUT, set the PUT content type to `image/webp`, and return success after B2 accepts the output. Treat the URLs and headers as credentials and keep them out of logs.
+
+For rollout, pause file mutations and backfill, let in-flight storage workflows finish, and apply the card thumbnail migration before deploying the app. After deployment, resume writes and use the admin storage action to queue missing thumbnails for existing files in batches.
 
 #### Backblaze B2 SSE-C rollout
 

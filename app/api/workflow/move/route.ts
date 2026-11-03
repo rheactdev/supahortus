@@ -16,7 +16,7 @@ export const { POST } = serve<MovePayload>(async (context) => {
 
   const { item, destination, descendants } = await context.run("prepare-relocation", async () => {
     const { data: item, error } = await supabaseAdmin.from("items")
-      .select("id, name, s3_key, thumbnail_key, type").eq("id", itemId)
+      .select("id, name, s3_key, thumbnail_key, card_thumbnail_key, type").eq("id", itemId)
       .eq("garden_id", gardenId).eq("status", "ready").single();
     if (error || !item) throw new Error("Item not found");
 
@@ -48,7 +48,7 @@ export const { POST } = serve<MovePayload>(async (context) => {
   }
 
   await context.run("relocate-item", async () => {
-    const thumbnail = item.thumbnail_key && relocatedThumbnailKey(item.thumbnail_key, destination);
+    const thumbnail = item.thumbnail_key && relocatedThumbnailKey(item.thumbnail_key, destination, item.id);
     await relocateStoredItem(item, destination, thumbnail, { parent_id: newParentId });
   });
 

@@ -67,7 +67,7 @@ export async function syncS3ToDb() {
   for (let start = 0; ; start += pageSize) {
     const { data: items, error } = await supabaseAdmin
       .from("items")
-      .select("id, s3_key, garden_id, parent_id, thumbnail_key, preview_key")
+      .select("id, s3_key, garden_id, parent_id, thumbnail_key, card_thumbnail_key, preview_key")
       .order("id")
       .range(start, start + pageSize - 1);
     if (error || !items) throw new Error("Failed to fetch existing items");
@@ -75,6 +75,7 @@ export async function syncS3ToDb() {
     for (const item of items) {
       existingMap.set(item.s3_key, item);
       if (item.thumbnail_key) derivativeKeys.add(item.thumbnail_key);
+      if (item.card_thumbnail_key) derivativeKeys.add(item.card_thumbnail_key);
       if (item.preview_key) derivativeKeys.add(item.preview_key);
     }
     if (items.length < pageSize) break;
@@ -88,7 +89,10 @@ export async function syncS3ToDb() {
 
   for (const s3Key of s3Keys) {
     // Keep generated assets and encrypted uploads out of the legacy import.
-    if (isEncryptedObject(s3Key) || derivativeKeys.has(s3Key)) continue;
+    const basename = s3Key.slice(s3Key.lastIndexOf("/") + 1);
+    const isCardThumbnail = /^(?:\.upload~[0-9a-f-]{36}~)?\.card-thumbnail-[0-9a-f-]{36}-[0-9a-f]{32}\.webp$/.test(basename);
+    const isDesignPreview = /^(?:\.upload~[0-9a-f-]{36}~)?\.thumbnail-[0-9a-f-]{36}(?:-[0-9a-f]{32})?_thumb\.webp$/.test(basename);
+    if (isEncryptedObject(s3Key) || derivativeKeys.has(s3Key) || isCardThumbnail || isDesignPreview) continue;
     const parts = s3Key.split("/");
     const prefixDepth = parts[0] === "hortus-v2" ? 3 : 2;
     const prefix = parts.slice(0, prefixDepth).join("/") + "/";
@@ -177,10 +181,10 @@ export async function queueMissingThumbnails(afterId: string | null) {
   const batchSize = 25;
   const query = supabaseAdmin
     .from("items")
-    .select("id, garden_id, name")
+    .select("id, garden_id, name, thumbnail_key, card_thumbnail_key")
     .eq("type", "file")
     .eq("status", "ready")
-    .is("thumbnail_key", null)
+    .is("card_thumbnail_key", null)
     .order("id")
     .limit(batchSize);
   const { data: items, error } = await (afterId ? query.gt("id", afterId) : query);
@@ -190,7 +194,7 @@ export async function queueMissingThumbnails(afterId: string | null) {
     items.map((item) => queueThumbnail(
       { gardenId: item.garden_id, itemId: item.id },
       item.name,
-      null,
+      item,
     )),
   );
 

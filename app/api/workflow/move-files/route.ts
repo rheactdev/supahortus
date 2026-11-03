@@ -6,6 +6,7 @@ import {
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getAppBaseUrl } from "@/lib/app-url";
+import { relocatedCardThumbnailKey } from "@/lib/storage-relocation";
 
 type MoveFilesPayload = {
   sourceGardenId: string;
@@ -21,6 +22,8 @@ type FileMove = {
   newS3Key: string;
   oldThumbnailKey: string | null;
   newThumbnailKey: string | null;
+  oldCardThumbnailKey: string | null;
+  newCardThumbnailKey: string | null;
 };
 
 export const { POST } = serve<MoveFilesPayload>(
@@ -36,7 +39,7 @@ export const { POST } = serve<MoveFilesPayload>(
     const moves = await context.run("prepare-file-moves", async () => {
       const { data, error } = await supabaseAdmin
         .from("items")
-        .select("id, name, s3_key, thumbnail_key, garden_id, type")
+        .select("id, name, s3_key, thumbnail_key, card_thumbnail_key, garden_id, type")
         .in("id", itemIds).eq("status", "ready");
 
       if (error) throw error;
@@ -84,7 +87,11 @@ export const { POST } = serve<MoveFilesPayload>(
           newS3Key,
           oldThumbnailKey: item.thumbnail_key,
           newThumbnailKey: item.thumbnail_key
-            ? relocatedThumbnailKey(item.thumbnail_key, newS3Key)
+            ? relocatedThumbnailKey(item.thumbnail_key, newS3Key, item.id)
+            : null,
+          oldCardThumbnailKey: item.card_thumbnail_key,
+          newCardThumbnailKey: item.card_thumbnail_key
+            ? relocatedCardThumbnailKey(item.card_thumbnail_key, newS3Key)
             : null,
         };
       });
@@ -98,19 +105,27 @@ export const { POST } = serve<MoveFilesPayload>(
         if (move.oldThumbnailKey && move.newThumbnailKey) {
           await copyStorageObject(move.oldThumbnailKey, move.newThumbnailKey);
         }
+        if (move.oldCardThumbnailKey && move.newCardThumbnailKey) {
+          await copyStorageObject(move.oldCardThumbnailKey, move.newCardThumbnailKey);
+        }
       }));
     });
 
     await context.run("update-file-records", async () => {
       for (const move of moves) {
         const { error } = await supabaseAdmin.rpc(
-          "internal_move_file_record",
+          "internal_relocate_file_record",
           {
             p_item_id: move.id,
+            p_source_garden_id: sourceGardenId,
             p_target_garden_id: targetGardenId,
             p_target_parent_id: targetParentId,
+            p_old_s3_key: move.oldS3Key,
+            p_old_thumbnail_key: move.oldThumbnailKey,
+            p_old_card_thumbnail_key: move.oldCardThumbnailKey ?? null,
             p_new_s3_key: move.newS3Key,
             p_new_thumbnail_key: move.newThumbnailKey,
+            p_new_card_thumbnail_key: move.newCardThumbnailKey ?? null,
           },
         );
         if (error) throw error;
@@ -121,6 +136,7 @@ export const { POST } = serve<MoveFilesPayload>(
       const oldKeys = moves.flatMap((move) => [
         ...(move.oldS3Key !== move.newS3Key ? [move.oldS3Key] : []),
         ...(move.oldThumbnailKey && move.oldThumbnailKey !== move.newThumbnailKey ? [move.oldThumbnailKey] : []),
+        ...(move.oldCardThumbnailKey && move.oldCardThumbnailKey !== move.newCardThumbnailKey ? [move.oldCardThumbnailKey] : []),
       ]);
 
       for (let index = 0; index < oldKeys.length; index += 1000) {

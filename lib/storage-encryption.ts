@@ -109,11 +109,9 @@ export async function signObject(
   return { url, headers };
 }
 
-export function relocatedThumbnailKey(source: string, originalDestination: string) {
-  const marker = uploadKeyMarker(originalDestination);
+export function relocatedThumbnailKey(source: string, originalDestination: string, itemId: string) {
   const path = originalDestination.slice(0, originalDestination.lastIndexOf("/") + 1);
-  const name = basename(originalDestination).slice(marker.length);
-  return preserveUploadKeyMarker(source, path + name.replace(/\.[^/.]+$/, "") + "_thumb.webp");
+  return preserveUploadKeyMarker(source, `${path}.thumbnail-${itemId}_thumb.webp`);
 }
 
 export async function requireUploadedObject(key: string) {

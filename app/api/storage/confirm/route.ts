@@ -7,10 +7,11 @@ import { requireGardenPermission } from "@/lib/storage-access";
 import { buildS3Key } from "@/lib/data";
 import { readUploadTicket } from "@/lib/upload-ticket";
 import { queueThumbnail, type ThumbnailPayload } from "@/lib/thumbnail-workflow";
+import type { ThumbnailKeys } from "@/lib/thumbnail-types";
 
-async function tryQueueThumbnail(payload: ThumbnailPayload, name: string, thumbnailKey: string | null) {
+async function tryQueueThumbnail(payload: ThumbnailPayload, name: string, keys: ThumbnailKeys) {
   try {
-    return await queueThumbnail(payload, name, thumbnailKey);
+    return await queueThumbnail(payload, name, keys);
   } catch {
     console.error("[thumbnail] Could not queue thumbnail generation");
     return false;
@@ -47,11 +48,11 @@ async function confirmUpload(uploadToken: unknown, userId: string) {
     type: "file",
   });
 
-  let thumbnailKey: string | null = null;
+  let thumbnailKeys: ThumbnailKeys = {};
   if (error?.code === "23505") {
     const { data: existing, error: readError } = await supabaseAdmin
       .from("items")
-      .select("thumbnail_key")
+      .select("thumbnail_key, card_thumbnail_key")
       .eq("id", ticket.itemId)
       .eq("garden_id", ticket.gardenId)
       .eq("s3_key", ticket.key)
@@ -63,13 +64,13 @@ async function confirmUpload(uploadToken: unknown, userId: string) {
     if (!existing) {
       return NextResponse.json({ error: "This upload conflicts with an existing file" }, { status: 409 });
     }
-    thumbnailKey = existing.thumbnail_key;
+    thumbnailKeys = existing;
   } else if (error) {
     throw error;
   }
 
   revalidateTag(`garden-${ticket.gardenId}`, { expire: 0 });
-  await tryQueueThumbnail({ gardenId: ticket.gardenId, itemId: ticket.itemId }, ticket.filename, thumbnailKey);
+  await tryQueueThumbnail({ gardenId: ticket.gardenId, itemId: ticket.itemId }, ticket.filename, thumbnailKeys);
   return NextResponse.json({ confirmed: true });
 }
 
@@ -97,7 +98,7 @@ export async function POST(request: Request) {
     // Fetch item and verify membership
     const { data: item, error: fetchError } = await supabaseAdmin
       .from("items")
-      .select("garden_id, status, s3_key, name, thumbnail_key")
+      .select("garden_id, status, s3_key, name, thumbnail_key, card_thumbnail_key")
       .eq("id", itemId)
       .eq("type", "file")
       .single();
@@ -112,28 +113,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (generateThumbnail === true && item.status !== "ready") {
+    if (item.status === "deleting" || (generateThumbnail === true && item.status !== "ready")) {
       return NextResponse.json({ error: "File is not ready" }, { status: 409 });
     }
 
     if (item.status !== "ready") {
       await requireUploadedObject(item.s3_key);
-      const { error: updateError } = await supabaseAdmin
+      const { data: confirmed, error: updateError } = await supabaseAdmin
         .from("items")
         .update({ status: "ready" })
-        .eq("id", itemId);
+        .eq("id", itemId)
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle();
 
       if (updateError) throw updateError;
+      if (!confirmed) {
+        const { data: current, error: currentError } = await supabaseAdmin
+          .from("items")
+          .select("id")
+          .eq("id", itemId)
+          .eq("status", "ready")
+          .maybeSingle();
+        if (currentError) throw currentError;
+        if (!current) return NextResponse.json({ error: "File is not ready" }, { status: 409 });
+      }
     }
 
     const payload = { gardenId: item.garden_id, itemId };
     if (generateThumbnail === true) {
-      const queued = await queueThumbnail(payload, item.name, item.thumbnail_key);
+      const queued = await queueThumbnail(payload, item.name, item);
       return NextResponse.json({ queued });
     }
 
     revalidateTag(`garden-${item.garden_id}`, { expire: 0 });
-    await tryQueueThumbnail(payload, item.name, item.thumbnail_key);
+    await tryQueueThumbnail(payload, item.name, item);
     return NextResponse.json({ confirmed: true });
   } catch {
     console.error("Upload confirmation failed");

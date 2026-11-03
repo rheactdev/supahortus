@@ -3,8 +3,9 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { DocumentIcon, Folder } from "@/components/icons/liquid-glass";
-import { GlobalSearchResult } from "@/lib/data";
+import type { GlobalSearchResult, Item } from "@/lib/data";
 import { FileCard } from "./FileCard";
+import { FilePreviewModal } from "./FilePreviewModal";
 import { useRouter } from "next/navigation";
 
 export function SearchResults({ 
@@ -17,6 +18,7 @@ export function SearchResults({
   userId: string;
 }) {
   const [view, setView] = useState<"table" | "grid">("grid");
+  const [previewFile, setPreviewFile] = useState<Item | null>(null);
   const router = useRouter();
 
   if (results.length === 0) {
@@ -133,10 +135,7 @@ export function SearchResults({
                   <div 
                     key={file.id} 
                     className="relative h-full cursor-pointer"
-                    onDoubleClick={() => {
-                      const targetPath = file.parent_id ? `/${file.parent_id}` : '';
-                      router.push(`/my-gardens/${file.gardens.slug}${targetPath}?preview=${file.id}`);
-                    }}
+                    onDoubleClick={() => setPreviewFile(file)}
                   >
                     <FileCard
                       item={file}
@@ -148,6 +147,7 @@ export function SearchResults({
                       canDelete={file.permissions.can_delete}
                       allowShareLinks={true}
                       selectionEnabled={false}
+                      onPreview={setPreviewFile}
                       onRefresh={() => router.refresh()}
                       viewConfig={viewConfig}
                     />
@@ -160,6 +160,14 @@ export function SearchResults({
             </div>
           )}
         </div>
+      )}
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          files={sortedFiles}
+          onClose={() => setPreviewFile(null)}
+          onNavigate={setPreviewFile}
+        />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import { isEncryptedObject, storageTransferUrl } from "@/lib/storage-transfer-url";
 import { isStorageTransferUrl, prepareStorageTransfer, useStorageThumbnail } from "@/lib/storage-transfer-client";
-import { isBrowserImage, processorFileType } from "@/lib/thumbnail-types";
+import { isBrowserImage, needsThumbnailGeneration } from "@/lib/thumbnail-types";
 import React, { useState, memo } from "react";
 import Image from "next/image";
 import {
@@ -273,7 +273,7 @@ export const FileCard = memo(function FileCard({
                       </button>
                     </li>
                   )}
-                  {canUpload && processorFileType(item.name) && !providedThumbnailUrl && (
+                  {canUpload && needsThumbnailGeneration(item.name, item) && (
                     <li>
                       <button disabled={thumbnailLoading} onClick={handleGenerateThumbnail}>
                         Generate thumbnail
@@ -320,7 +320,7 @@ export const FileCard = memo(function FileCard({
             ) : thumbnailUrl ? (
               <Image
                 src={thumbnailUrl}
-                unoptimized={isStorageTransferUrl(thumbnailUrl)}
+                unoptimized={isStorageTransferUrl(thumbnailUrl) || !!item.card_thumbnail_key}
                 alt={item.name}
                 fill
                 sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 15vw"

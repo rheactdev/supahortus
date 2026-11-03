@@ -13,13 +13,18 @@ type DeletePayload = {
 type StoredKeys = {
   s3_key: string;
   thumbnail_key: string | null;
+  card_thumbnail_key: string | null;
   preview_key: string | null;
 };
+
+function escapePrefix(prefix: string) {
+  return prefix.replace(/[\\%_]/g, "\\$&");
+}
 
 async function readTarget({ gardenId, itemId }: DeletePayload) {
   const { data, error } = await supabaseAdmin
     .from("items")
-    .select("s3_key, thumbnail_key, preview_key, type")
+    .select("s3_key, thumbnail_key, card_thumbnail_key, preview_key, type")
     .eq("garden_id", gardenId)
     .eq("id", itemId)
     .maybeSingle();
@@ -28,7 +33,7 @@ async function readTarget({ gardenId, itemId }: DeletePayload) {
 }
 
 function keysWithinPrefix(item: StoredKeys, prefix: string) {
-  return [item.s3_key, item.thumbnail_key, item.preview_key].filter(
+  return [item.s3_key, item.thumbnail_key, item.card_thumbnail_key, item.preview_key].filter(
     (key): key is string => typeof key === "string" && key.startsWith(prefix),
   );
 }
@@ -49,6 +54,29 @@ export const { POST } = serve<DeletePayload>(
       ) {
         throw new Error("Item has an invalid storage path");
       }
+
+      // Block thumbnail publication before reading any keys for storage cleanup.
+      const { data: marked, error: markError } = await supabaseAdmin
+        .from("items")
+        .update({ status: "deleting" })
+        .eq("id", itemId)
+        .eq("garden_id", gardenId)
+        .eq("s3_key", item.s3_key)
+        .select("id")
+        .maybeSingle();
+      if (markError) throw markError;
+      if (!marked) return null;
+
+      if (item.type === "folder") {
+        const { error } = await supabaseAdmin
+          .from("items")
+          .update({ status: "deleting" })
+          .eq("garden_id", gardenId)
+          .neq("id", itemId)
+          .like("s3_key", `${escapePrefix(item.s3_key)}%`);
+        if (error) throw error;
+      }
+
       return { item, gardenPrefix };
     });
 
@@ -57,7 +85,7 @@ export const { POST } = serve<DeletePayload>(
 
     if (item.type === "folder") {
       const prefix = item.s3_key;
-      const escapedPrefix = prefix.replace(/[\\%_]/g, "\\$&");
+      const escapedPrefix = escapePrefix(prefix);
       let afterId: string | null = null;
       let page = 0;
 
@@ -67,10 +95,9 @@ export const { POST } = serve<DeletePayload>(
           const current = await readTarget(payload);
           if (current?.s3_key !== prefix) return null;
 
-          // Each row can reference up to three keys, so one page fits in a delete batch.
           let query = supabaseAdmin
             .from("items")
-            .select("id, s3_key, thumbnail_key, preview_key")
+            .select("id, s3_key, thumbnail_key, card_thumbnail_key, preview_key")
             .eq("garden_id", gardenId)
             .neq("id", itemId)
             .like("s3_key", `${escapedPrefix}%`)
@@ -82,10 +109,12 @@ export const { POST } = serve<DeletePayload>(
           if (error) throw error;
           if (!data?.length) return null;
 
-          const keys = data
+          const keys = [...new Set(data
             .filter((descendant) => descendant.s3_key.startsWith(prefix))
-            .flatMap((descendant) => keysWithinPrefix(descendant, prefix));
-          await deleteStorageKeys([...new Set(keys)]);
+            .flatMap((descendant) => keysWithinPrefix(descendant, prefix)))];
+          for (let index = 0; index < keys.length; index += 1000) {
+            await deleteStorageKeys(keys.slice(index, index + 1000));
+          }
           return data[data.length - 1].id;
         });
       } while (afterId);
@@ -107,7 +136,8 @@ export const { POST } = serve<DeletePayload>(
         .delete()
         .eq("garden_id", gardenId)
         .eq("id", itemId)
-        .eq("s3_key", item.s3_key);
+        .eq("s3_key", item.s3_key)
+        .eq("status", "deleting");
       if (error) throw error;
     });
 

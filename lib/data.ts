@@ -1,7 +1,7 @@
 import { getGardenStoragePrefix } from "@/lib/garden-storage";
 import { isEncryptedObject } from "@/lib/storage-encryption";
 import { storageTransferUrl } from "@/lib/storage-transfer-url";
-import { canHaveThumbnail, isBrowserImage } from "@/lib/thumbnail-types";
+import { canHaveThumbnail, getCardThumbnailKey } from "@/lib/thumbnail-types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
@@ -22,6 +22,7 @@ export type Item = {
   type: "file" | "folder";
   s3_key: string;
   thumbnail_key?: string | null;
+  card_thumbnail_key?: string | null;
   mime_type: string | null;
   created_at: string;
 };
@@ -87,7 +88,7 @@ export async function getItems(
 
   let query = supabaseAdmin
     .from("items")
-    .select("id, garden_id, parent_id, name, type, s3_key, mime_type, created_at")
+    .select("id, garden_id, parent_id, name, type, s3_key, card_thumbnail_key, mime_type, created_at")
     .eq("garden_id", gardenId)
     .eq("status", "ready")
     .order("type", { ascending: true }) // folders first
@@ -169,7 +170,7 @@ async function searchGardenItems(
 ): Promise<SearchItemRow[]> {
   const { data, error } = await supabaseAdmin
     .from("items")
-    .select("id, garden_id, parent_id, name, type, s3_key, mime_type, created_at, gardens(name, slug)")
+    .select("id, garden_id, parent_id, name, type, s3_key, card_thumbnail_key, mime_type, created_at, gardens(name, slug)")
     .in("garden_id", gardenIds)
     .eq("status", "ready")
     .textSearch("fts", `'${searchQuery}'`, {
@@ -347,7 +348,7 @@ export async function getThumbnailUrls(
 
   const { data: items, error } = await supabaseAdmin
     .from("items")
-    .select("id, s3_key, thumbnail_key, name")
+    .select("id, s3_key, card_thumbnail_key, thumbnail_key, name")
     .eq("garden_id", gardenId)
     .eq("type", "file")
     .eq("status", "ready")
@@ -362,7 +363,7 @@ export async function getThumbnailUrls(
       try {
         if (!canHaveThumbnail(item.name)) return;
 
-        const key = item.thumbnail_key ?? (isBrowserImage(item.name) ? item.s3_key : null);
+        const key = getCardThumbnailKey(item);
         if (!key) return;
         if (isEncryptedObject(key)) {
           urlMap[item.id] = storageTransferUrl(item.id, "thumbnail", { share });
@@ -489,6 +490,7 @@ export async function buildS3Key(
     .eq("id", parentId)
     .eq("garden_id", gardenId)
     .eq("type", "folder")
+    .eq("status", "ready")
     .single();
 
   if (!parent) throw new Error("Parent folder not found");

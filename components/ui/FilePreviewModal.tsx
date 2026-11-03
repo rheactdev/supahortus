@@ -2,6 +2,7 @@
 
 import { isEncryptedObject, storageTransferUrl } from "@/lib/storage-transfer-url";
 import { prepareStorageTransfer } from "@/lib/storage-transfer-client";
+import { processorFileType } from "@/lib/thumbnail-types";
 import { StorageDownloadLink } from "./StorageDownloadLink";
 import dynamic from "next/dynamic";
 import type { Item } from "@/lib/data";
@@ -38,8 +39,6 @@ const CodePreview = dynamic(
 );
 
 const OFFICE_EXTENSIONS = new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx"]);
-
-const DESIGN_EXTENSIONS = new Set(["psd", "afdesign", "afphoto", "afpub", "af"]);
 
 const IMAGE_EXTENSIONS = new Set([
   "jpg",
@@ -118,6 +117,7 @@ const CODE_EXTENSIONS = new Set([
 ]);
 
 type FileType =
+  | "design"
   | "image"
   | "video"
   | "audio"
@@ -135,7 +135,8 @@ function detectFileType(item: Item): FileType {
   const extension = getExtension(item.name);
   const mimeType = item.mime_type?.toLowerCase() ?? "";
 
-  if (OFFICE_EXTENSIONS.has(extension) || DESIGN_EXTENSIONS.has(extension)) return "unknown";
+  if (processorFileType(item.name)) return "design";
+  if (OFFICE_EXTENSIONS.has(extension)) return "unknown";
 
   if (mimeType.startsWith("image/") || IMAGE_EXTENSIONS.has(extension)) {
     return "image";
@@ -179,6 +180,7 @@ export function FilePreviewModal({
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
   const fileType = useMemo(() => detectFileType(file), [file]);
   const currentIndex = useMemo(
     () => files.findIndex((candidate) => candidate.id === file.id),
@@ -193,22 +195,29 @@ export function FilePreviewModal({
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setUnavailable(false);
     setUrl(null);
 
     async function loadPreviewUrl() {
       try {
-        const response = await fetch(
-          `/api/storage/download?id=${encodeURIComponent(file.id)}`,
-          { signal: controller.signal },
-        );
+        const params = new URLSearchParams({ id: file.id });
+        if (fileType === "design") params.set("asset", "preview");
+        const response = await fetch(`/api/storage/download?${params}`, { signal: controller.signal });
         const result = (await response.json()) as {
           url?: string;
           error?: string;
+          unavailable?: boolean;
         };
+        if (controller.signal.aborted) return;
+        if (result.unavailable) {
+          setUnavailable(true);
+          return;
+        }
         if (!response.ok || !result.url) {
           throw new Error(result.error || "Unable to create a preview URL");
         }
-        setUrl(await prepareStorageTransfer(result.url));
+        const previewUrl = await prepareStorageTransfer(result.url);
+        if (!controller.signal.aborted) setUrl(previewUrl);
       } catch (previewError) {
         if (controller.signal.aborted) return;
         setError(
@@ -395,6 +404,11 @@ export function FilePreviewModal({
             <PreviewUnavailable downloadUrl={downloadUrl} />
           ) : loading ? (
             <PreviewSpinner />
+          ) : unavailable ? (
+            <PreviewUnavailable
+              downloadUrl={downloadUrl}
+              message="A preview is unavailable for this file."
+            />
           ) : error ? (
             <PreviewError message={error} downloadUrl={downloadUrl} />
           ) : url ? (
@@ -437,6 +451,7 @@ function PreviewContent({
   url: string;
 }) {
   switch (fileType) {
+    case "design":
     case "image":
       return <ImagePreview url={url} name={file.name} />;
     case "video":
@@ -450,7 +465,13 @@ function PreviewContent({
   }
 }
 
-function PreviewUnavailable({ downloadUrl }: { downloadUrl: string }) {
+function PreviewUnavailable({
+  downloadUrl,
+  message = "Preview is not available for this file type.",
+}: {
+  downloadUrl: string;
+  message?: string;
+}) {
   return (
     <div className="flex flex-col items-center gap-4 text-center text-base-content/60">
       <svg
@@ -466,7 +487,7 @@ function PreviewUnavailable({ downloadUrl }: { downloadUrl: string }) {
         <path d="M14 2v6h6" />
       </svg>
       <p className="text-sm font-medium">
-        Preview is not available for this file type.
+        {message}
       </p>
       <StorageDownloadLink className="btn btn-sm btn-primary" href={downloadUrl}>
         Download file

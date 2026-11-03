@@ -7,6 +7,7 @@ import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireGardenPermission } from "@/lib/storage-access";
+import { processorFileType } from "@/lib/thumbnail-types";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -19,6 +20,8 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
+  const preview = searchParams.get("asset") === "preview";
+  const download = !preview && searchParams.get("download") === "true";
 
   if (!id) {
     return NextResponse.json(
@@ -30,7 +33,7 @@ export async function GET(request: Request) {
   try {
     const { data: item, error: fetchError } = await supabaseAdmin
       .from("items")
-      .select("garden_id, s3_key, name, mime_type")
+      .select("garden_id, s3_key, thumbnail_key, name, mime_type")
       .eq("type", "file")
       .eq("status", "ready")
       .eq("id", id)
@@ -46,10 +49,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (isEncryptedObject(item.s3_key)) {
-      const url = storageTransferUrl(id, "original", {
-        download: searchParams.get("download") === "true",
+    const key = preview
+      ? (processorFileType(item.name) ? item.thumbnail_key : null)
+      : item.s3_key;
+    if (!key) {
+      return NextResponse.json({ unavailable: true }, {
+        status: 404,
+        headers: { "Cache-Control": "no-store" },
       });
+    }
+
+    if (isEncryptedObject(key)) {
+      const url = storageTransferUrl(id, preview ? "preview" : "original", { download });
       if (searchParams.get("action") === "download") {
         return NextResponse.redirect(new URL(url, request.url));
       }
@@ -58,14 +69,14 @@ export async function GET(request: Request) {
 
     const commandConfig: GetObjectCommandInput = {
       Bucket: BUCKET_NAME,
-      Key: item.s3_key,
-      ResponseContentType: item.mime_type || "application/octet-stream",
+      Key: key,
+      ResponseContentType: preview ? "image/webp" : item.mime_type || "application/octet-stream",
     };
 
-    if (searchParams.get("download") === "true") {
+    if (download) {
       commandConfig.ResponseContentDisposition = contentDisposition(
         "attachment",
-        item.name,
+        preview ? item.name.replace(/\.[^.]+$/, ".webp") : item.name,
       );
     } else {
       commandConfig.ResponseContentDisposition = contentDisposition(

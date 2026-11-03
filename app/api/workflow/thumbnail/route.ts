@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Receiver } from "@upstash/qstash";
 import { serve } from "@upstash/workflow/nextjs";
+import sharp from "sharp";
 import { getAppBaseUrl } from "@/lib/app-url";
-import { BUCKET_NAME } from "@/lib/s3";
+import { BUCKET_NAME, s3Client } from "@/lib/s3";
 import { deleteStorageKeys } from "@/lib/storage-delete";
 import {
   encryptionInput,
@@ -12,10 +13,13 @@ import {
   signObject,
 } from "@/lib/storage-encryption";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { processorFileType } from "@/lib/thumbnail-types";
+import { needsThumbnailGeneration, processorFileType } from "@/lib/thumbnail-types";
 import type { ThumbnailPayload } from "@/lib/thumbnail-workflow";
 
-async function processThumbnail(sourceKey: string, outputKey: string, fileType: "psd" | "af") {
+const MAX_CARD_SOURCE_BYTES = 64 * 1024 * 1024;
+const MAX_CARD_SOURCE_PIXELS = 64_000_000;
+
+async function processDesignPreview(sourceKey: string, outputKey: string, fileType: "psd" | "af") {
   const processorUrl = process.env.IMAGE_PROCESSOR_URL;
   const secret = process.env.PROCESSOR_SECRET;
   if (!processorUrl || !secret) throw new Error("Thumbnail processor is not configured");
@@ -49,12 +53,59 @@ async function processThumbnail(sourceKey: string, outputKey: string, fileType: 
   await requireUploadedObject(outputKey);
 }
 
+async function readCardSource(sourceKey: string) {
+  const { Body, ContentLength } = await s3Client.send(new GetObjectCommand({
+    Bucket: BUCKET_NAME, Key: sourceKey, ...encryptionInput(sourceKey),
+  }));
+  if (!Body) throw new Error("Thumbnail source is unavailable");
+
+  const reader = Body.transformToWebStream().getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    if (ContentLength !== undefined && ContentLength > MAX_CARD_SOURCE_BYTES) {
+      throw new Error("Thumbnail source is too large");
+    }
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_CARD_SOURCE_BYTES) throw new Error("Thumbnail source is too large");
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, bytes);
+}
+
+async function processCardThumbnail(sourceKey: string, outputKey: string) {
+  const source = await readCardSource(sourceKey);
+  const image = sharp(source, { limitInputPixels: MAX_CARD_SOURCE_PIXELS });
+  const { format } = await image.metadata();
+  if (format !== "jpeg" && format !== "png" && format !== "webp") {
+    throw new Error("Unsupported thumbnail source format");
+  }
+  const body = await image
+    .autoOrient()
+    .resize(480, 480, { fit: "inside", withoutEnlargement: true })
+    .webp()
+    .toBuffer();
+  await s3Client.send(new PutObjectCommand({
+    Bucket: BUCKET_NAME, Key: outputKey, Body: body,
+    ContentType: "image/webp", ...encryptionInput(outputKey),
+  }));
+}
+
 const { POST: handleWorkflow } = serve<ThumbnailPayload>(async (context) => {
   const { gardenId, itemId } = context.requestPayload;
 
   async function getReadyFile() {
     const { data, error } = await supabaseAdmin.from("items")
-      .select("name, s3_key, thumbnail_key")
+      .select("name, s3_key, thumbnail_key, card_thumbnail_key")
       .eq("id", itemId).eq("garden_id", gardenId)
       .eq("type", "file").eq("status", "ready").maybeSingle();
     if (error) throw error;
@@ -63,60 +114,106 @@ const { POST: handleWorkflow } = serve<ThumbnailPayload>(async (context) => {
 
   const job = await context.run("prepare-thumbnail", async () => {
     const item = await getReadyFile();
-    if (!item || item.thumbnail_key) return null;
+    if (!item || !needsThumbnailGeneration(item.name, item)) return null;
 
     const fileType = processorFileType(item.name);
-    if (!fileType) return null;
-
     const runSuffix = createHash("sha256").update(context.workflowRunId).digest("hex").slice(0, 32);
     const prefix = item.s3_key.slice(0, item.s3_key.lastIndexOf("/") + 1);
-    const outputKey = preserveUploadKeyMarker(
-      item.s3_key, `${prefix}.thumbnail-${itemId}-${runSuffix}_thumb.webp`,
-    );
-    return { sourceKey: item.s3_key, outputKey, fileType };
+    return {
+      name: item.name,
+      sourceKey: item.s3_key,
+      fileType,
+      existingPreviewKey: item.thumbnail_key,
+      previewOutputKey: preserveUploadKeyMarker(
+        item.s3_key, `${prefix}.thumbnail-${itemId}-${runSuffix}_thumb.webp`,
+      ),
+      cardOutputKey: preserveUploadKeyMarker(
+        item.s3_key, `${prefix}.card-thumbnail-${itemId}-${runSuffix}.webp`,
+      ),
+    };
   });
 
   if (!job) return;
 
-  const published = await context.run("process-and-publish-thumbnail", async () => {
-    const item = await getReadyFile();
-    if (item?.thumbnail_key === job.outputKey) return true;
+  const matchesJob = (item: Awaited<ReturnType<typeof getReadyFile>>) =>
+    item?.s3_key === job.sourceKey && item.name === job.name;
 
-    if (!item || item.s3_key !== job.sourceKey || item.thumbnail_key ||
-        processorFileType(item.name) !== job.fileType) {
-      await deleteStorageKeys([job.outputKey]);
+  const cacheRevalidation = {
+    url: `${getAppBaseUrl()}/api/revalidate?tag=garden-${gardenId}`,
+    method: "POST" as const,
+    headers: process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+      ? { "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET }
+      : undefined,
+  };
+
+  const fileType = job.fileType;
+  const previewKey = fileType && !job.existingPreviewKey
+    ? await context.run("publish-design-preview", async () => {
+      const item = await getReadyFile();
+      if (item?.thumbnail_key === job.previewOutputKey) return job.previewOutputKey;
+      if (!item || !matchesJob(item) || item.thumbnail_key) {
+        await deleteStorageKeys([job.previewOutputKey]);
+        return item && matchesJob(item) ? item.thumbnail_key : null;
+      }
+
+      try {
+        await processDesignPreview(job.sourceKey, job.previewOutputKey, fileType);
+      } catch {
+        await deleteStorageKeys([job.previewOutputKey]);
+        throw new Error("Design preview processing failed");
+      }
+
+      const { data, error } = await supabaseAdmin.from("items")
+        .update({ thumbnail_key: job.previewOutputKey })
+        .eq("id", itemId).eq("garden_id", gardenId)
+        .eq("type", "file").eq("status", "ready").eq("s3_key", job.sourceKey).eq("name", job.name)
+        .is("thumbnail_key", null).select("id").maybeSingle();
+      if (error) throw error;
+      if (data) return job.previewOutputKey;
+
+      const current = await getReadyFile();
+      if (current?.thumbnail_key === job.previewOutputKey) return job.previewOutputKey;
+      await deleteStorageKeys([job.previewOutputKey]);
+      return current && matchesJob(current) ? current.thumbnail_key : null;
+    })
+    : fileType ? job.existingPreviewKey : null;
+
+  if (fileType && !previewKey) return;
+  if (previewKey === job.previewOutputKey) {
+    await context.call("revalidate-preview-cache", cacheRevalidation);
+  }
+
+  const published = await context.run("publish-card-thumbnail", async () => {
+    const item = await getReadyFile();
+    if (item?.card_thumbnail_key === job.cardOutputKey) return true;
+    if (!item || !matchesJob(item) || item.card_thumbnail_key ||
+        (fileType && item.thumbnail_key !== previewKey)) {
+      await deleteStorageKeys([job.cardOutputKey]);
       return false;
     }
 
     try {
-      await processThumbnail(job.sourceKey, job.outputKey, job.fileType);
+      await processCardThumbnail(previewKey ?? job.sourceKey, job.cardOutputKey);
     } catch {
-      await deleteStorageKeys([job.outputKey]);
-      throw new Error("Thumbnail processing failed");
+      await deleteStorageKeys([job.cardOutputKey]);
+      throw new Error("Card thumbnail processing failed");
     }
 
-    const { data, error } = await supabaseAdmin.from("items")
-      .update({ thumbnail_key: job.outputKey })
+    let update = supabaseAdmin.from("items")
+      .update({ card_thumbnail_key: job.cardOutputKey })
       .eq("id", itemId).eq("garden_id", gardenId)
-      .eq("type", "file").eq("status", "ready").eq("s3_key", job.sourceKey)
-      .is("thumbnail_key", null)
-      .select("id").maybeSingle();
+      .eq("type", "file").eq("status", "ready").eq("s3_key", job.sourceKey).eq("name", job.name)
+      .is("card_thumbnail_key", null);
+    if (previewKey) update = update.eq("thumbnail_key", previewKey);
+    const { data, error } = await update.select("id").maybeSingle();
     if (error) throw error;
-    if (data) return true;
+    if (data || (await getReadyFile())?.card_thumbnail_key === job.cardOutputKey) return true;
 
-    if ((await getReadyFile())?.thumbnail_key === job.outputKey) return true;
-    await deleteStorageKeys([job.outputKey]);
+    await deleteStorageKeys([job.cardOutputKey]);
     return false;
   });
 
-  if (published) {
-    const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-    await context.call("revalidate-cache", {
-      url: `${getAppBaseUrl()}/api/revalidate?tag=garden-${gardenId}`,
-      method: "POST",
-      headers: bypass ? { "x-vercel-protection-bypass": bypass } : undefined,
-    });
-  }
+  if (published) await context.call("revalidate-cache", cacheRevalidation);
 }, {
   receiver: new Receiver({
     currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY,

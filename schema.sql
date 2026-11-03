@@ -70,6 +70,7 @@ CREATE TABLE public.items (
   type text NOT NULL,
   s3_key text NOT NULL,
   thumbnail_key text NULL,
+  card_thumbnail_key text NULL,
   preview_key text NULL,
   preview_status text NULL,
   preview_error text NULL,
@@ -88,7 +89,7 @@ CREATE TABLE public.items (
     ON DELETE CASCADE,
   CONSTRAINT items_s3_key_unique UNIQUE (s3_key),
   CONSTRAINT items_type_check CHECK (type IN ('file', 'folder')),
-  CONSTRAINT items_status_check CHECK (status IN ('pending', 'ready')),
+  CONSTRAINT items_status_check CHECK (status IN ('pending', 'ready', 'deleting')),
   CONSTRAINT items_preview_status_check CHECK (
     preview_status IS NULL
     OR preview_status IN ('pending', 'ready', 'failed')
@@ -330,6 +331,57 @@ BEGIN
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'file not found';
+  END IF;
+END;
+$$;
+
+CREATE FUNCTION public.internal_relocate_file_record(
+  p_item_id uuid,
+  p_source_garden_id uuid,
+  p_target_garden_id uuid,
+  p_target_parent_id uuid,
+  p_old_s3_key text,
+  p_old_thumbnail_key text,
+  p_old_card_thumbnail_key text,
+  p_new_s3_key text,
+  p_new_thumbnail_key text,
+  p_new_card_thumbnail_key text
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  PERFORM set_config('app.allow_cross_garden_file_move', 'on', true);
+
+  UPDATE public.items
+  SET
+    garden_id = p_target_garden_id,
+    parent_id = p_target_parent_id,
+    s3_key = p_new_s3_key,
+    thumbnail_key = p_new_thumbnail_key,
+    card_thumbnail_key = p_new_card_thumbnail_key
+  WHERE id = p_item_id
+    AND type = 'file'
+    AND status = 'ready'
+    AND garden_id = p_source_garden_id
+    AND s3_key = p_old_s3_key
+    AND thumbnail_key IS NOT DISTINCT FROM p_old_thumbnail_key
+    AND card_thumbnail_key IS NOT DISTINCT FROM p_old_card_thumbnail_key;
+
+  IF NOT FOUND AND NOT EXISTS (
+    SELECT 1
+    FROM public.items
+    WHERE id = p_item_id
+      AND type = 'file'
+      AND status = 'ready'
+      AND garden_id = p_target_garden_id
+      AND parent_id IS NOT DISTINCT FROM p_target_parent_id
+      AND s3_key = p_new_s3_key
+      AND (p_new_thumbnail_key IS NULL OR thumbnail_key = p_new_thumbnail_key)
+      AND (p_new_card_thumbnail_key IS NULL OR card_thumbnail_key = p_new_card_thumbnail_key)
+  ) THEN
+    RAISE EXCEPTION 'file changed during relocation';
   END IF;
 END;
 $$;
@@ -802,6 +854,14 @@ GRANT EXECUTE ON FUNCTION public.internal_move_file_record(
   uuid,
   text,
   text
+) TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.internal_relocate_file_record(
+  uuid, uuid, uuid, uuid, text, text, text, text, text, text
+) FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.internal_relocate_file_record(
+  uuid, uuid, uuid, uuid, text, text, text, text, text, text
 ) TO service_role;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public

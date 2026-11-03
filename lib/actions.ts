@@ -396,7 +396,7 @@ export async function renameItem(
 
   const { data: item, error: fetchError } = await supabaseAdmin
     .from("items")
-    .select("id, name, s3_key, type, parent_id, garden_id, thumbnail_key")
+    .select("id, name, s3_key, type, parent_id, garden_id, thumbnail_key, card_thumbnail_key")
     .eq("id", itemId)
     .eq("status", "ready")
     .single();
@@ -442,7 +442,7 @@ export async function renameItem(
   } else {
     newS3Key = preserveUploadKeyMarker(item.s3_key, newS3Key);
     if (newS3Key === item.s3_key) return;
-    const thumbnailKey = item.thumbnail_key && relocatedThumbnailKey(item.thumbnail_key, newS3Key);
+    const thumbnailKey = item.thumbnail_key && relocatedThumbnailKey(item.thumbnail_key, newS3Key, item.id);
     await relocateStoredItem(item, newS3Key, thumbnailKey, { name: newName });
   }
 
@@ -481,6 +481,7 @@ export async function moveItem(
       .eq("id", newParentId)
       .eq("garden_id", gardenId)
       .eq("type", "folder")
+      .eq("status", "ready")
       .single();
     if (!parent) throw new Error("Destination folder not found");
     newParentS3Key = parent.s3_key;
@@ -542,6 +543,7 @@ export async function moveFiles(
       .from("items")
       .select("id, garden_id, s3_key, type")
       .eq("id", targetParentId)
+      .eq("status", "ready")
       .single();
 
     if (
