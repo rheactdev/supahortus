@@ -1,6 +1,7 @@
 import { getGardenStoragePrefix } from "@/lib/garden-storage";
 import { isEncryptedObject } from "@/lib/storage-encryption";
 import { storageTransferUrl } from "@/lib/storage-transfer-url";
+import { canHaveThumbnail, isBrowserImage } from "@/lib/thumbnail-types";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
@@ -20,6 +21,7 @@ export type Item = {
   name: string;
   type: "file" | "folder";
   s3_key: string;
+  thumbnail_key?: string | null;
   mime_type: string | null;
   created_at: string;
 };
@@ -338,13 +340,14 @@ export async function getGardenMembership(
 // ---------------------------------------------------------------------------
 export async function getThumbnailUrls(
   gardenId: string,
-  itemIds: string[]
+  itemIds: string[],
+  share?: string,
 ): Promise<Record<string, string>> {
   if (itemIds.length === 0) return {};
 
   const { data: items, error } = await supabaseAdmin
     .from("items")
-    .select("id, s3_key, name")
+    .select("id, s3_key, thumbnail_key, name")
     .eq("garden_id", gardenId)
     .eq("type", "file")
     .eq("status", "ready")
@@ -357,11 +360,12 @@ export async function getThumbnailUrls(
   await Promise.all(
     items.map(async (item) => {
       try {
-        if (!/\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(item.name)) return;
+        if (!canHaveThumbnail(item.name)) return;
 
-        const key = item.s3_key;
+        const key = item.thumbnail_key ?? (isBrowserImage(item.name) ? item.s3_key : null);
+        if (!key) return;
         if (isEncryptedObject(key)) {
-          urlMap[item.id] = storageTransferUrl(item.id, "thumbnail");
+          urlMap[item.id] = storageTransferUrl(item.id, "thumbnail", { share });
           return;
         }
         const command = new GetObjectCommand({

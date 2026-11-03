@@ -1,3 +1,4 @@
+import { canHaveThumbnail } from "@/lib/thumbnail-types";
 import { createClient } from "@/lib/supabase/server";
 import {
   getBreadcrumbs,
@@ -45,10 +46,7 @@ export async function PublicGarden({
   ]);
   const imageItems = items.filter(
     (item) =>
-      item.type === "file" &&
-      /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(
-        item.name,
-      ),
+      item.type === "file" && canHaveThumbnail(item.name),
   );
   const thumbnailUrls =
     imageItems.length > 0

@@ -6,6 +6,16 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireGardenPermission } from "@/lib/storage-access";
 import { buildS3Key } from "@/lib/data";
 import { readUploadTicket } from "@/lib/upload-ticket";
+import { queueThumbnail, type ThumbnailPayload } from "@/lib/thumbnail-workflow";
+
+async function tryQueueThumbnail(payload: ThumbnailPayload, name: string, thumbnailKey: string | null) {
+  try {
+    return await queueThumbnail(payload, name, thumbnailKey);
+  } catch {
+    console.error("[thumbnail] Could not queue thumbnail generation");
+    return false;
+  }
+}
 
 async function confirmUpload(uploadToken: unknown, userId: string) {
   const ticket = readUploadTicket(uploadToken, userId);
@@ -37,10 +47,11 @@ async function confirmUpload(uploadToken: unknown, userId: string) {
     type: "file",
   });
 
+  let thumbnailKey: string | null = null;
   if (error?.code === "23505") {
     const { data: existing, error: readError } = await supabaseAdmin
       .from("items")
-      .select("id")
+      .select("thumbnail_key")
       .eq("id", ticket.itemId)
       .eq("garden_id", ticket.gardenId)
       .eq("s3_key", ticket.key)
@@ -52,11 +63,13 @@ async function confirmUpload(uploadToken: unknown, userId: string) {
     if (!existing) {
       return NextResponse.json({ error: "This upload conflicts with an existing file" }, { status: 409 });
     }
+    thumbnailKey = existing.thumbnail_key;
   } else if (error) {
     throw error;
   }
 
   revalidateTag(`garden-${ticket.gardenId}`, { expire: 0 });
+  await tryQueueThumbnail({ gardenId: ticket.gardenId, itemId: ticket.itemId }, ticket.filename, thumbnailKey);
   return NextResponse.json({ confirmed: true });
 }
 
@@ -71,20 +84,20 @@ export async function POST(request: Request) {
   const userId = authData.claims.sub as string;
 
   try {
-    const { itemId, uploadToken } = await request.json();
+    const { itemId, uploadToken, generateThumbnail } = await request.json();
 
     if (uploadToken !== undefined) {
       return await confirmUpload(uploadToken, userId);
     }
 
-    if (!itemId) {
+    if (typeof itemId !== "string" || !itemId) {
       return NextResponse.json({ error: "An upload token or itemId is required" }, { status: 400 });
     }
 
     // Fetch item and verify membership
     const { data: item, error: fetchError } = await supabaseAdmin
       .from("items")
-      .select("garden_id, status, s3_key")
+      .select("garden_id, status, s3_key, name, thumbnail_key")
       .eq("id", itemId)
       .eq("type", "file")
       .single();
@@ -99,6 +112,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    if (generateThumbnail === true && item.status !== "ready") {
+      return NextResponse.json({ error: "File is not ready" }, { status: 409 });
+    }
+
     if (item.status !== "ready") {
       await requireUploadedObject(item.s3_key);
       const { error: updateError } = await supabaseAdmin
@@ -109,7 +126,14 @@ export async function POST(request: Request) {
       if (updateError) throw updateError;
     }
 
+    const payload = { gardenId: item.garden_id, itemId };
+    if (generateThumbnail === true) {
+      const queued = await queueThumbnail(payload, item.name, item.thumbnail_key);
+      return NextResponse.json({ queued });
+    }
+
     revalidateTag(`garden-${item.garden_id}`, { expire: 0 });
+    await tryQueueThumbnail(payload, item.name, item.thumbnail_key);
     return NextResponse.json({ confirmed: true });
   } catch {
     console.error("Upload confirmation failed");

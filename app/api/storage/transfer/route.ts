@@ -6,6 +6,7 @@ import { requireGardenPermission } from "@/lib/storage-access";
 import { encryptionInput, isEncryptedObject, signObject } from "@/lib/storage-encryption";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { isBrowserImage } from "@/lib/thumbnail-types";
 
 const noStore = { "Cache-Control": "private, no-store" };
 
@@ -34,10 +35,14 @@ export async function GET(request: Request) {
     const item = share ? await getSharedFile(share, id) : await getAuthorizedItem(id);
     if (!item) return error("File unavailable", 404);
 
-    const key = item.s3_key;
-    if (!isEncryptedObject(key)) return error("Encrypted object unavailable", 404);
+    const usesThumbnail = asset === "thumbnail" && !!item.thumbnail_key;
+    const key = asset === "thumbnail"
+      ? item.thumbnail_key ?? (isBrowserImage(item.name) ? item.s3_key : null)
+      : item.s3_key;
+    if (!key || !isEncryptedObject(key)) return error("Encrypted object unavailable", 404);
 
-    const filename = encodeURIComponent(item.name).replace(/['()*]/g, (character) =>
+    const name = usesThumbnail ? `${item.name.replace(/\.[^.]+$/, "")}.webp` : item.name;
+    const filename = encodeURIComponent(name).replace(/['()*]/g, (character) =>
       "%" + character.charCodeAt(0).toString(16).toUpperCase(),
     );
     const descriptor = await signObject(new GetObjectCommand({
@@ -48,7 +53,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ...descriptor,
       disposition: `${download ? "attachment" : "inline"}; filename*=UTF-8''${filename}`,
-      contentType: item.mime_type || "application/octet-stream",
+      contentType: usesThumbnail ? "image/webp" : item.mime_type || "application/octet-stream",
     }, { headers: noStore });
   } catch {
     return error("Encrypted transfer could not be prepared", 503);
@@ -62,7 +67,7 @@ async function getAuthorizedItem(id: string) {
   if (typeof userId !== "string") return null;
 
   const { data: item } = await supabaseAdmin.from("items")
-    .select("garden_id, name, s3_key, mime_type")
+    .select("garden_id, name, s3_key, thumbnail_key, mime_type")
     .eq("id", id).eq("type", "file").eq("status", "ready").maybeSingle();
   if (!item) return null;
   try {

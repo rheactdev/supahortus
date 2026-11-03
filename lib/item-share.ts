@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import { isEncryptedObject } from "@/lib/storage-encryption";
 import { storageTransferUrl } from "@/lib/storage-transfer-url";
+import { canHaveThumbnail } from "@/lib/thumbnail-types";
 import { getThumbnailUrls, type BreadcrumbItem, type Item } from "@/lib/data";
 
 type ShareRecord = {
@@ -47,7 +48,7 @@ export async function getItemShareContext(
   const { data: root } = await supabaseAdmin
     .from("items")
     .select(
-      "id, garden_id, parent_id, name, type, s3_key, mime_type, created_at",
+      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, mime_type, created_at",
     )
     .eq("id", share.item_id)
     .eq("status", "ready")
@@ -86,7 +87,7 @@ async function getReadyItem(itemId: string): Promise<Item | null> {
   const { data } = await supabaseAdmin
     .from("items")
     .select(
-      "id, garden_id, parent_id, name, type, s3_key, mime_type, created_at",
+      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, mime_type, created_at",
     )
     .eq("id", itemId)
     .eq("status", "ready")
@@ -130,19 +131,12 @@ export async function getSharedFolderView(
   const imageIds = items
     .filter(
       (item) =>
-        item.type === "file" &&
-        /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(item.name),
+        item.type === "file" && canHaveThumbnail(item.name),
     )
     .map((item) => item.id);
   const thumbnailUrls = imageIds.length
-    ? await getThumbnailUrls(context.root.garden_id, imageIds)
+    ? await getThumbnailUrls(context.root.garden_id, imageIds, code)
     : {};
-
-  for (const item of items) {
-    if (thumbnailUrls[item.id] && isEncryptedObject(item.s3_key)) {
-      thumbnailUrls[item.id] = storageTransferUrl(item.id, "thumbnail", { share: code });
-    }
-  }
 
   return {
     ...context,

@@ -1,3 +1,4 @@
+import { canHaveThumbnail } from "@/lib/thumbnail-types";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
@@ -55,7 +56,7 @@ async function GardenContents({ params }: GardenPageProps) {
   const imageItems = items.filter(
     (i) =>
       i.type === "file" &&
-      /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(i.name)
+      canHaveThumbnail(i.name)
   );
   const thumbnailUrls =
     imageItems.length > 0

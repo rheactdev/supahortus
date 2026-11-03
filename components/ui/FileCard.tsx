@@ -1,5 +1,6 @@
 import { isEncryptedObject, storageTransferUrl } from "@/lib/storage-transfer-url";
 import { isStorageTransferUrl, prepareStorageTransfer, useStorageThumbnail } from "@/lib/storage-transfer-client";
+import { isBrowserImage, processorFileType } from "@/lib/thumbnail-types";
 import React, { useState, memo } from "react";
 import Image from "next/image";
 import {
@@ -68,23 +69,14 @@ export const FileCard = memo(function FileCard({
 }: FileCardProps) {
   const thumbnailUrl = useStorageThumbnail(providedThumbnailUrl);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [toast, setToast] = useState(false);
+  const [toast, setToast] = useState("");
+  const [thumbnailLoading, setThumbnailLoading] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameName, setRenameName] = useState(item.name);
   const [renameLoading, setRenameLoading] = useState(false);
   const ext = item.name.split(".").pop()?.toLowerCase() || "";
-  const IMAGE_EXTENSIONS = new Set([
-    "jpg",
-    "jpeg",
-    "png",
-    "gif",
-    "webp",
-    "svg",
-    "avif",
-  ]);
-
   const isImage =
-    item.mime_type?.startsWith("image/") || IMAGE_EXTENSIONS.has(ext);
+    item.mime_type?.startsWith("image/") || isBrowserImage(item.name);
   const isPdf = item.mime_type === "application/pdf" || ext === "pdf";
 
   // Easily add more extension -> icon mappings here
@@ -136,12 +128,34 @@ export const FileCard = memo(function FileCard({
     try {
       const url = await createShareLink(item.id, gardenId, userId);
       await navigator.clipboard.writeText(url);
-      setToast(true);
-      setTimeout(() => setToast(false), 3000);
+      setToast("Link Copied to Clipboard!");
+      setTimeout(() => setToast(""), 3000);
     } catch (err) {
       console.error("Failed to share", err);
     }
     setDropdownOpen(false);
+  };
+
+  const handleGenerateThumbnail = async () => {
+    setDropdownOpen(false);
+    setThumbnailLoading(true);
+    try {
+      const response = await fetch("/api/storage/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: item.id, generateThumbnail: true }),
+      });
+      if (!response.ok) throw new Error("Could not queue thumbnail generation.");
+
+      const { queued } = await response.json();
+      setToast(queued ? "Thumbnail generation queued." : "Thumbnail already available.");
+      setTimeout(() => setToast(""), 3000);
+      onRefresh();
+    } catch {
+      window.alert("Could not queue thumbnail generation. Try again.");
+    } finally {
+      setThumbnailLoading(false);
+    }
   };
 
   const handleRename = async () => {
@@ -259,6 +273,13 @@ export const FileCard = memo(function FileCard({
                       </button>
                     </li>
                   )}
+                  {canUpload && processorFileType(item.name) && !providedThumbnailUrl && (
+                    <li>
+                      <button disabled={thumbnailLoading} onClick={handleGenerateThumbnail}>
+                        Generate thumbnail
+                      </button>
+                    </li>
+                  )}
                   <li>
                     <button onClick={handleDownload}>
                       <Download size={16} className="text-secondary" /> Download
@@ -296,7 +317,7 @@ export const FileCard = memo(function FileCard({
                 name={item.name}
                 fit={viewConfig.imageFit}
               />
-            ) : isImage && thumbnailUrl ? (
+            ) : thumbnailUrl ? (
               <Image
                 src={thumbnailUrl}
                 unoptimized={isStorageTransferUrl(thumbnailUrl)}
@@ -329,7 +350,7 @@ export const FileCard = memo(function FileCard({
       {toast && (
         <div className="toast toast-end z-50">
           <div className="alert alert-success shadow-lg text-success-content font-medium text-sm">
-            <span>Link Copied to Clipboard!</span>
+            <span>{toast}</span>
           </div>
         </div>
       )}
