@@ -1,3 +1,5 @@
+import { isEncryptedObject, storageTransferUrl } from "@/lib/storage-transfer-url";
+import { isStorageTransferUrl, prepareStorageTransfer, useStorageThumbnail } from "@/lib/storage-transfer-client";
 import React, { useState, memo } from "react";
 import Image from "next/image";
 import {
@@ -51,7 +53,7 @@ export interface ExtensionIcon {
 
 export const FileCard = memo(function FileCard({
   item,
-  thumbnailUrl,
+  thumbnailUrl: providedThumbnailUrl,
   gardenId,
   userId,
   canUpload,
@@ -64,6 +66,7 @@ export const FileCard = memo(function FileCard({
   onRefresh,
   viewConfig,
 }: FileCardProps) {
+  const thumbnailUrl = useStorageThumbnail(providedThumbnailUrl);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [toast, setToast] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -78,11 +81,6 @@ export const FileCard = memo(function FileCard({
     "webp",
     "svg",
     "avif",
-    "afdesign",
-    "afphoto",
-    "afpub",
-    "af",
-    "psd",
   ]);
 
   const isImage =
@@ -110,9 +108,16 @@ export const FileCard = memo(function FileCard({
   //   curIcon = <Image src="/icons/lg-color/icons8-full-image.svg" width={18} height={18} alt="photo icon" />;
   // }
 
-  const handleDownload = () => {
-    window.location.href = `/api/storage/download?action=download&download=true&id=${encodeURIComponent(item.id)}`;
+  const handleDownload = async () => {
     setDropdownOpen(false);
+    try {
+      const url = isEncryptedObject(item.s3_key)
+        ? storageTransferUrl(item.id, "original", { download: true })
+        : `/api/storage/download?action=download&download=true&id=${encodeURIComponent(item.id)}`;
+      window.location.assign(await prepareStorageTransfer(url));
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Download unavailable.");
+    }
   };
 
   const handleDelete = async () => {
@@ -151,24 +156,6 @@ export const FileCard = memo(function FileCard({
     } finally {
       setRenameLoading(false);
     }
-  };
-
-  const handleRegenerateThumbnail = async () => {
-    try {
-      setToast(true);
-      await fetch("/api/storage/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          itemId: item.id,
-          forceThumbnail: true,
-        }),
-      });
-      setTimeout(() => setToast(false), 3000);
-    } catch (err) {
-      console.error("Failed to regenerate thumbnail", err);
-    }
-    setDropdownOpen(false);
   };
 
   const handleCardClick = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -277,21 +264,6 @@ export const FileCard = memo(function FileCard({
                       <Download size={16} className="text-secondary" /> Download
                     </button>
                   </li>
-                  {isImage && canUpload && (
-                    <li>
-                      <button
-                        onClick={handleRegenerateThumbnail}
-                        className="text-primary font-medium"
-                      >
-                        <ImageIcon
-                          size={16}
-                          style="lg-color"
-                          icon="icons8-restart"
-                        />
-                        Regenerate Thumb
-                      </button>
-                    </li>
-                  )}
                   {canDelete && (
                     <>
                       <div className="divider my-0" />
@@ -327,6 +299,7 @@ export const FileCard = memo(function FileCard({
             ) : isImage && thumbnailUrl ? (
               <Image
                 src={thumbnailUrl}
+                unoptimized={isStorageTransferUrl(thumbnailUrl)}
                 alt={item.name}
                 fill
                 sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 15vw"

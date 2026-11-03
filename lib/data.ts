@@ -1,3 +1,5 @@
+import { isEncryptedObject } from "@/lib/storage-encryption";
+import { storageTransferUrl } from "@/lib/storage-transfer-url";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
@@ -14,9 +16,6 @@ export type Item = {
   name: string;
   type: "file" | "folder";
   s3_key: string;
-  thumbnail_key: string | null;
-  preview_key: string | null;
-  preview_status: "pending" | "ready" | "failed" | null;
   mime_type: string | null;
   created_at: string;
 };
@@ -82,7 +81,7 @@ export async function getItems(
 
   let query = supabaseAdmin
     .from("items")
-    .select("id, garden_id, parent_id, name, type, s3_key, thumbnail_key, preview_key, preview_status, mime_type, created_at")
+    .select("id, garden_id, parent_id, name, type, s3_key, mime_type, created_at")
     .eq("garden_id", gardenId)
     .eq("status", "ready")
     .order("type", { ascending: true }) // folders first
@@ -139,7 +138,7 @@ export async function searchAllItems(
 
   const { data } = await supabaseAdmin
     .from("items")
-    .select("id, garden_id, parent_id, name, type, s3_key, thumbnail_key, preview_key, preview_status, mime_type, created_at, gardens(name, slug)")
+    .select("id, garden_id, parent_id, name, type, s3_key, mime_type, created_at, gardens(name, slug)")
     .in("garden_id", gardenIds)
     .eq("status", "ready")
     .textSearch("fts", `'${searchQuery}'`, {
@@ -345,7 +344,7 @@ export async function getThumbnailUrls(
 
   const { data: items } = await supabaseAdmin
     .from("items")
-    .select("id, s3_key, thumbnail_key, name")
+    .select("id, s3_key, name")
     .in("id", itemIds);
 
   if (!items || items.length === 0) return {};
@@ -354,17 +353,16 @@ export async function getThumbnailUrls(
   await Promise.all(
     items.map(async (item) => {
       try {
-        const isWebRenderable = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(item.name);
-        
-        // If it has no thumbnail_key and it's not a web-renderable image, skip it
-        // so it falls back to a generic file icon instead of a broken image.
-        if (!item.thumbnail_key && !isWebRenderable) {
+        if (!/\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(item.name)) return;
+
+        const key = item.s3_key;
+        if (isEncryptedObject(key)) {
+          urlMap[item.id] = storageTransferUrl(item.id, "thumbnail");
           return;
         }
-
         const command = new GetObjectCommand({
           Bucket: BUCKET_NAME,
-          Key: item.thumbnail_key || item.s3_key,
+          Key: key,
         });
         urlMap[item.id] = await getSignedUrl(s3Client, command, {
           expiresIn: 3600,
@@ -485,6 +483,8 @@ export async function buildS3Key(
     .from("items")
     .select("s3_key")
     .eq("id", parentId)
+    .eq("garden_id", gardenId)
+    .eq("type", "folder")
     .single();
 
   if (!parent) throw new Error("Parent folder not found");

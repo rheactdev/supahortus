@@ -46,7 +46,7 @@ export async function PublicGarden({
   const imageItems = items.filter(
     (item) =>
       item.type === "file" &&
-      /\.(jpg|jpeg|png|gif|webp|svg|avif|psd|afdesign|afphoto|afpub|af)$/i.test(
+      /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i.test(
         item.name,
       ),
   );

@@ -1,3 +1,6 @@
+import { StorageDownloadLink } from "./StorageDownloadLink";
+import { SharedThumbnail } from "./SharedThumbnail";
+import { isEncryptedObject, storageTransferUrl } from "@/lib/storage-transfer-url";
 import Link from "next/link";
 import {
   Download,
@@ -96,26 +99,15 @@ export function SharedFolder({
                   {files.map((file) => {
                     const thumbnailUrl = view.thumbnailUrls[file.id];
                     return (
-                      <a
+                      <StorageDownloadLink
                         key={file.id}
-                        href={`/api/share/${code}/download?id=${encodeURIComponent(file.id)}`}
+                        href={isEncryptedObject(file.s3_key)
+                          ? storageTransferUrl(file.id, "original", { download: true, share: code })
+                          : `/api/share/${code}/download?id=${encodeURIComponent(file.id)}`}
                         className="group overflow-hidden rounded-xl border border-base-content/10 bg-base-100 transition-colors hover:border-primary/30"
                       >
                         <div className="flex aspect-video items-center justify-center overflow-hidden bg-base-200/50">
-                          {thumbnailUrl ? (
-                            // Signed object URLs should bypass image optimization.
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={thumbnailUrl}
-                              alt=""
-                              className="size-full object-contain transition-transform group-hover:scale-[1.02]"
-                            />
-                          ) : (
-                            <FileIcon
-                              size={42}
-                              className="text-base-content/35"
-                            />
-                          )}
+                          <SharedThumbnail url={thumbnailUrl} />
                         </div>
                         <div className="flex items-center gap-3 p-3">
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -126,7 +118,7 @@ export function SharedFolder({
                             className="shrink-0 text-base-content/50"
                           />
                         </div>
-                      </a>
+                      </StorageDownloadLink>
                     );
                   })}
                 </div>
@@ -138,3 +130,4 @@ export function SharedFolder({
     </div>
   );
 }
+

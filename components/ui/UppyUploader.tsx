@@ -39,6 +39,7 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
           gardenId,
         }),
       });
+      if (!res.ok) throw new Error("Upload signing failed");
       const data = await res.json();
       itemIdMap.current.set(file.id, data.itemId);
       return data;
@@ -56,6 +57,7 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
           gardenId,
         }),
       });
+      if (!res.ok) throw new Error("Multipart initialization failed");
       const data = await res.json();
       itemIdMap.current.set(file.id, data.itemId);
       return { uploadId: data.uploadId, key: data.key };
@@ -70,6 +72,7 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
         itemId,
       });
       const res = await fetch(`/api/storage/multipart/sign-part?${params}`);
+      if (!res.ok) throw new Error("Multipart signing failed");
       return await res.json();
     },
 
@@ -81,16 +84,18 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
         itemId,
       });
       const res = await fetch(`/api/storage/multipart/list-parts?${params}`);
+      if (!res.ok) throw new Error("Could not list uploaded parts");
       return await res.json();
     },
 
     async completeMultipartUpload(file, { uploadId, key, parts }) {
       const itemId = itemIdMap.current.get(file.id);
-      await fetch("/api/storage/multipart/complete", {
+      const res = await fetch("/api/storage/multipart/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ uploadId, key, parts, itemId }),
       });
+      if (!res.ok) throw new Error("Multipart completion failed");
       return {};
     },
 
@@ -114,21 +119,25 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
 
   useEffect(() => {
     const handleComplete = async (result: { successful?: { id: string }[] }) => {
-      if (result.successful && result.successful.length > 0) {
-        // Confirm all successful uploads (sets status from 'pending' to 'ready')
-        await Promise.all(
-          result.successful.map(async (file: { id: string }) => {
-            const itemId = itemIdMap.current.get(file.id);
-            if (itemId) {
-              await fetch("/api/storage/confirm", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ itemId }),
-              });
-              itemIdMap.current.delete(file.id);
-            }
-          })
-        );
+      const files = result.successful ?? [];
+      if (!files.length) return;
+
+      const confirmations = await Promise.allSettled(files.map(async (file) => {
+        const itemId = itemIdMap.current.get(file.id);
+        if (!itemId) return;
+        const response = await fetch("/api/storage/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemId }),
+        });
+        if (!response.ok) throw new Error("Upload confirmation failed");
+        itemIdMap.current.delete(file.id);
+      }));
+
+      if (confirmations.some(({ status }) => status === "rejected")) {
+        window.alert("Some uploads reached storage but could not be confirmed.");
+      }
+      if (confirmations.some(({ status }) => status === "fulfilled")) {
         await invalidateGardenCache(gardenId);
         onUploadSuccess();
       }

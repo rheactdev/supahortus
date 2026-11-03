@@ -1,6 +1,6 @@
+import { copyStorageObject, preserveEncryption, relocatedThumbnailKey } from "@/lib/storage-encryption";
 import { serve } from "@upstash/workflow/nextjs";
 import {
-  CopyObjectCommand,
   DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
@@ -23,10 +23,6 @@ type FileMove = {
   newThumbnailKey: string | null;
 };
 
-function encodeCopySource(key: string) {
-  return key.split("/").map(encodeURIComponent).join("/");
-}
-
 export const { POST } = serve<MoveFilesPayload>(
   async (context) => {
     const {
@@ -41,7 +37,7 @@ export const { POST } = serve<MoveFilesPayload>(
       const { data, error } = await supabaseAdmin
         .from("items")
         .select("id, name, s3_key, thumbnail_key, garden_id, type")
-        .in("id", itemIds);
+        .in("id", itemIds).eq("status", "ready");
 
       if (error) throw error;
       if (!data || data.length !== itemIds.length) {
@@ -81,14 +77,14 @@ export const { POST } = serve<MoveFilesPayload>(
       }
 
       const prepared: FileMove[] = data.map((item) => {
-        const newS3Key = `${targetParentS3Key}${item.name}`;
+        const newS3Key = preserveEncryption(item.s3_key, `${targetParentS3Key}${item.name}`);
         return {
           id: item.id,
           oldS3Key: item.s3_key,
           newS3Key,
           oldThumbnailKey: item.thumbnail_key,
           newThumbnailKey: item.thumbnail_key
-            ? newS3Key.replace(/\.[^/.]+$/, "") + "_thumb.webp"
+            ? relocatedThumbnailKey(item.thumbnail_key, newS3Key)
             : null,
         };
       });
@@ -97,33 +93,12 @@ export const { POST } = serve<MoveFilesPayload>(
     });
 
     await context.run("copy-file-objects", async () => {
-      await Promise.all(
-        moves.flatMap((move) => {
-          const copies = [
-            s3Client.send(
-              new CopyObjectCommand({
-                Bucket: BUCKET_NAME,
-                CopySource: `${BUCKET_NAME}/${encodeCopySource(move.oldS3Key)}`,
-                Key: move.newS3Key,
-              }),
-            ),
-          ];
-
-          if (move.oldThumbnailKey && move.newThumbnailKey) {
-            copies.push(
-              s3Client.send(
-                new CopyObjectCommand({
-                  Bucket: BUCKET_NAME,
-                  CopySource: `${BUCKET_NAME}/${encodeCopySource(move.oldThumbnailKey)}`,
-                  Key: move.newThumbnailKey,
-                }),
-              ),
-            );
-          }
-
-          return copies;
-        }),
-      );
+      await Promise.all(moves.map(async (move) => {
+        await copyStorageObject(move.oldS3Key, move.newS3Key);
+        if (move.oldThumbnailKey && move.newThumbnailKey) {
+          await copyStorageObject(move.oldThumbnailKey, move.newThumbnailKey);
+        }
+      }));
     });
 
     await context.run("update-file-records", async () => {
@@ -144,18 +119,19 @@ export const { POST } = serve<MoveFilesPayload>(
 
     await context.run("delete-old-file-objects", async () => {
       const oldKeys = moves.flatMap((move) => [
-        move.oldS3Key,
-        ...(move.oldThumbnailKey ? [move.oldThumbnailKey] : []),
+        ...(move.oldS3Key !== move.newS3Key ? [move.oldS3Key] : []),
+        ...(move.oldThumbnailKey && move.oldThumbnailKey !== move.newThumbnailKey ? [move.oldThumbnailKey] : []),
       ]);
 
       for (let index = 0; index < oldKeys.length; index += 1000) {
         const batch = oldKeys.slice(index, index + 1000);
-        await s3Client.send(
+        const result = await s3Client.send(
           new DeleteObjectsCommand({
             Bucket: BUCKET_NAME,
             Delete: { Objects: batch.map((Key) => ({ Key })) },
           }),
         );
+        if (result.Errors?.length) throw new Error("Some source files could not be deleted");
       }
     });
 
@@ -172,11 +148,8 @@ export const { POST } = serve<MoveFilesPayload>(
     }
   },
   {
-    failureFunction: async ({ failStatus, failResponse }) => {
-      console.error(
-        `[workflow/move-files] Failed (${failStatus}):`,
-        failResponse,
-      );
+    failureFunction: async ({ failStatus }) => {
+      console.error(`[workflow/move-files] Failed (${failStatus})`);
     },
   },
 );

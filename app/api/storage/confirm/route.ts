@@ -1,12 +1,8 @@
+import { requireUploadedEncryptedObject } from "@/lib/storage-encryption";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { Client } from "@upstash/qstash";
 import { requireGardenPermission } from "@/lib/storage-access";
-import { getAppBaseUrl } from "@/lib/app-url";
-import { isOfficeFile, queueOfficePreview } from "@/lib/office-preview";
-
-const qstash = new Client({ token: process.env.QSTASH_TOKEN || "" });
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -19,7 +15,7 @@ export async function POST(request: Request) {
   const userId = authData.claims.sub as string;
 
   try {
-    const { itemId, forceThumbnail } = await request.json();
+    const { itemId } = await request.json();
 
     if (!itemId) {
       return NextResponse.json({ error: "itemId is required" }, { status: 400 });
@@ -28,8 +24,9 @@ export async function POST(request: Request) {
     // Fetch item and verify membership
     const { data: item, error: fetchError } = await supabaseAdmin
       .from("items")
-      .select("garden_id, status, name, s3_key")
+      .select("garden_id, status, s3_key")
       .eq("id", itemId)
+      .eq("type", "file")
       .single();
 
     if (fetchError || !item) {
@@ -42,11 +39,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    if (item.status === "ready" && !forceThumbnail) {
-      return NextResponse.json({ confirmed: true });
-    }
-
     if (item.status !== "ready") {
+      await requireUploadedEncryptedObject(item.s3_key);
       const { error: updateError } = await supabaseAdmin
         .from("items")
         .update({ status: "ready" })
@@ -55,34 +49,9 @@ export async function POST(request: Request) {
       if (updateError) throw updateError;
     }
 
-    // Check if we need to generate a thumbnail
-    if (/\.(psd|afdesign|afphoto|afpub|af)$/i.test(item.name)) {
-      await qstash.publishJSON({
-        url: `${getAppBaseUrl()}/api/workflow/thumbnail`,
-        headers: process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
-          "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
-        } : undefined,
-        body: {
-          gardenId: item.garden_id,
-          itemId: itemId,
-          s3Key: item.s3_key,
-          filename: item.name,
-        },
-      });
-    }
-
-    if (isOfficeFile(item.name)) {
-      await queueOfficePreview({
-        id: itemId,
-        garden_id: item.garden_id,
-        name: item.name,
-        s3_key: item.s3_key,
-      });
-    }
-
     return NextResponse.json({ confirmed: true });
-  } catch (error) {
-    console.error("Confirm error:", error);
+  } catch {
+    console.error("Upload confirmation failed");
     return NextResponse.json(
       { error: "Failed to confirm upload" },
       { status: 500 }

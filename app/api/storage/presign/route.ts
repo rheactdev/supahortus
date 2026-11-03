@@ -1,7 +1,7 @@
+import { encryptionInput, newUploadKey, signObject } from "@/lib/storage-encryption";
 import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { s3Client, BUCKET_NAME } from "@/lib/s3";
+import { BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { buildS3Key } from "@/lib/data";
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   try {
     const { filename, contentType, parentId, gardenId } = await request.json();
 
-    if (!filename || !gardenId) {
+    if (typeof filename !== "string" || !filename || /[/\\]/.test(filename) || !gardenId) {
       return NextResponse.json(
         { error: "filename and gardenId are required" },
         { status: 400 }
@@ -33,7 +33,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No upload permission" }, { status: 403 });
     }
 
-    const s3Key = await buildS3Key(gardenId, parentId || null, filename);
+    const s3Key = newUploadKey(await buildS3Key(gardenId, parentId || null, filename));
+
+    const uploadContentType = typeof contentType === "string" && contentType
+      ? contentType : "application/octet-stream";
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: s3Key,
+      ...encryptionInput(s3Key),
+      ContentType: uploadContentType,
+    });
+    const { url, headers } = await signObject(command);
 
     // Insert pending item record
     const { data: item, error: insertError } = await supabaseAdmin
@@ -44,29 +54,21 @@ export async function POST(request: Request) {
         parent_id: parentId || null,
         garden_id: gardenId,
         type: "file",
-        mime_type: contentType || "application/octet-stream",
+        mime_type: uploadContentType,
       })
       .select("id")
       .single();
 
     if (insertError) throw insertError;
 
-    const command = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: s3Key,
-      ContentType: contentType,
-    });
-
-    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-
     return NextResponse.json({
       method: "PUT",
       url,
-      headers: { "Content-Type": contentType },
+      headers: { ...headers, "Content-Type": uploadContentType },
       itemId: item.id,
-    });
-  } catch (error) {
-    console.error("Presign error:", error);
+    }, { headers: { "Cache-Control": "no-store" } });
+  } catch {
+    console.error("Storage upload signing failed");
     return NextResponse.json(
       { error: "Failed to generate presigned URL" },
       { status: 500 }

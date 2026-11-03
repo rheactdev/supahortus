@@ -43,10 +43,6 @@ S3_SECRET_ACCESS_KEY=your_secret_key
 S3_REGION=your_region
 S3_BUCKET_NAME=your_bucket_name
 S3_ENDPOINT=your_optional_endpoint # e.g., for Cloudflare R2 or MinIO
-
-# Office preview conversion service
-OFFICE_CONVERTER_URL=https://office-converter.example.com
-OFFICE_CONVERTER_SECRET=use-a-long-random-secret
 ```
 
 ### Installation
@@ -79,7 +75,20 @@ Supahortus uses the **PKCE** flow for standard logins and **Token Hash** verific
 A root-level `proxy.ts` acts as the Next.js 16 middleware, ensuring that sessions are refreshed and validated on every request without blocking public authentication routes.
 
 ### S3 Security
-Files are never proxied through the server. Instead, the API generates **AWS Presigned URLs**, allowing for highly efficient and secure transfers directly between the user's browser and the S3 bucket.
+Uploads and downloads go directly between the browser and B2 using presigned URLs. Encrypted browser reads use a service worker that intercepts only the storage transfer endpoint, adds the object-specific SSE-C headers, and streams the B2 response. The app server issues transfer credentials after checking access.
+
+#### Retiring the preview services
+
+Before deploying the route removal, drain or cancel queued image thumbnail and Office preview jobs in QStash. After deployment, remove `IMAGE_PROCESSOR_URL`, `PROCESSOR_SECRET`, `OFFICE_CONVERTER_URL`, and `OFFICE_CONVERTER_SECRET` from Vercel. Office files are download-only. Photoshop and Affinity files use file icons. Previously generated assets stay in B2 and are hidden in the app.
+
+#### Backblaze B2 SSE-C rollout
+
+1. Keep `S3_SSE_C_ACTIVE_VERSION` empty while deploying the read paths. Browsers need HTTPS or localhost for the transfer worker.
+2. Check the B2 bucket CORS rules for each deployed app origin. Allow the three `x-amz-server-side-encryption-customer-*` request headers, `Range`, and the existing upload headers. Expose `ETag`, `Accept-Ranges`, and `Content-Range`. The existing `set-cors.js` allows all request headers and exposes these response headers.
+3. Generate a random 32-byte master key with `openssl rand -base64 32`. Store it in deployment secrets as `S3_SSE_C_KEY_V1` or in the untracked local `.env`. Set `S3_SSE_C_ACTIVE_VERSION=V1` and redeploy. Keep a protected backup of every version. Deploy new keys to all instances before switching the active version. Version names may contain letters, digits, and underscores.
+4. Verify new and legacy files, multipart retry across rotation, range previews, file shares, and moves or renames. Confirm new objects report SSE-C in B2 and inspect signed URLs and logs for key material. Pause new SSE-C uploads by clearing the active version while keeping the key ring deployed.
+
+The app reads the key version from the reserved storage path and derives a distinct encryption key for that path. Existing objects keep their encryption mode. Admin bucket sync leaves encrypted paths to the app's upload records. Authorized browsers can see the key for an object they access. URL expiration and share revocation prevent new authorized requests through the app, while recipients can retain keys or data they already received.
 
 ## 📂 Project Structure
 

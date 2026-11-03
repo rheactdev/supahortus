@@ -1,13 +1,12 @@
 "use server";
 
+import { preserveEncryption, relocatedThumbnailKey } from "@/lib/storage-encryption";
+
+import { relocateStoredItem } from "@/lib/storage-relocation";
 import { updateTag } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
-import {
-  DeleteObjectCommand,
-  CopyObjectCommand,
-  PutObjectCommand,
-} from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { Client as WorkflowClient } from "@upstash/workflow";
 import { Client as QStashClient } from "@upstash/qstash";
 import { headers } from "next/headers";
@@ -445,13 +444,14 @@ export async function renameItem(
   gardenId: string,
   userId: string
 ) {
-  if (!newName || newName.includes("/")) throw new Error("Invalid name");
+  if (!newName || newName.includes("/") || newName.startsWith(".ssec~")) throw new Error("Invalid name");
   await requireMembership(gardenId, userId, "upload");
 
   const { data: item, error: fetchError } = await supabaseAdmin
     .from("items")
-    .select("id, name, s3_key, type, parent_id, garden_id")
+    .select("id, name, s3_key, type, parent_id, garden_id, thumbnail_key")
     .eq("id", itemId)
+    .eq("status", "ready")
     .single();
 
   if (fetchError || !item) throw new Error("Item not found");
@@ -467,20 +467,17 @@ export async function renameItem(
       .from("items")
       .select("s3_key")
       .eq("id", item.parent_id)
+      .eq("garden_id", gardenId)
+      .eq("type", "folder")
       .single();
-    newS3Key = `${parent?.s3_key || ""}${suffix}`;
+    if (!parent) throw new Error("Parent folder not found");
+    newS3Key = `${parent.s3_key}${suffix}`;
   } else {
     const slug = await getGardenSlug(gardenId);
     newS3Key = `${s3Root(slug)}${suffix}`;
   }
 
-  // Update this item's DB row immediately (fast for UI)
-  const { error: updateError } = await supabaseAdmin
-    .from("items")
-    .update({ name: newName, s3_key: newS3Key })
-    .eq("id", itemId);
-
-  if (updateError) throw updateError;
+  if (isFolder && newS3Key === item.s3_key) return;
 
   if (isFolder) {
     // Trigger durable rename workflow for descendants
@@ -492,25 +489,15 @@ export async function renameItem(
         folderId: itemId,
         oldPrefix: item.s3_key,
         newPrefix: newS3Key,
+        newName,
       },
       retries: 3,
     });
   } else {
-    // Single file: copy + delete in S3 immediately
-    const encodedOldKey = item.s3_key
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/");
-    await s3Client.send(
-      new CopyObjectCommand({
-        Bucket: BUCKET_NAME,
-        CopySource: `${BUCKET_NAME}/${encodedOldKey}`,
-        Key: newS3Key,
-      })
-    );
-    await s3Client.send(
-      new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: item.s3_key })
-    );
+    newS3Key = preserveEncryption(item.s3_key, newS3Key);
+    if (newS3Key === item.s3_key) return;
+    const thumbnailKey = item.thumbnail_key && relocatedThumbnailKey(item.thumbnail_key, newS3Key);
+    await relocateStoredItem(item, newS3Key, thumbnailKey, { name: newName });
   }
 
   updateTag(`garden-${gardenId}`);
@@ -546,6 +533,8 @@ export async function moveItem(
       .from("items")
       .select("s3_key")
       .eq("id", newParentId)
+      .eq("garden_id", gardenId)
+      .eq("type", "folder")
       .single();
     if (!parent) throw new Error("Destination folder not found");
     newParentS3Key = parent.s3_key;

@@ -45,7 +45,8 @@ export async function updateSession(request: NextRequest) {
   const isPublicGardenRoute = request.nextUrl.pathname.startsWith("/public/g/");
   const isItemShareRoute =
     request.nextUrl.pathname.startsWith("/s/") ||
-    request.nextUrl.pathname.startsWith("/api/share/");
+    request.nextUrl.pathname.startsWith("/api/share/") ||
+    request.nextUrl.pathname === "/api/storage/transfer";
 
   if (!user && !isAuthRoute && !isLoginRoute && !isWorkerRoute && !isWebhookRoute && !isPublicGardenRoute && !isItemShareRoute && request.nextUrl.pathname !== "/") {
     console.log(`[middleware] Redirecting unauthenticated request to ${request.nextUrl.pathname} to login`);

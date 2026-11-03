@@ -1,5 +1,8 @@
 "use client";
 
+import { isEncryptedObject, storageTransferUrl } from "@/lib/storage-transfer-url";
+import { prepareStorageTransfer } from "@/lib/storage-transfer-client";
+import { StorageDownloadLink } from "./StorageDownloadLink";
 import dynamic from "next/dynamic";
 import type { Item } from "@/lib/data";
 import {
@@ -35,6 +38,8 @@ const CodePreview = dynamic(
 );
 
 const OFFICE_EXTENSIONS = new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx"]);
+
+const DESIGN_EXTENSIONS = new Set(["psd", "afdesign", "afphoto", "afpub", "af"]);
 
 const IMAGE_EXTENSIONS = new Set([
   "jpg",
@@ -117,7 +122,6 @@ type FileType =
   | "video"
   | "audio"
   | "pdf"
-  | "office"
   | "code"
   | "unknown";
 
@@ -131,6 +135,8 @@ function detectFileType(item: Item): FileType {
   const extension = getExtension(item.name);
   const mimeType = item.mime_type?.toLowerCase() ?? "";
 
+  if (OFFICE_EXTENSIONS.has(extension) || DESIGN_EXTENSIONS.has(extension)) return "unknown";
+
   if (mimeType.startsWith("image/") || IMAGE_EXTENSIONS.has(extension)) {
     return "image";
   }
@@ -141,7 +147,6 @@ function detectFileType(item: Item): FileType {
     return "audio";
   }
   if (mimeType === "application/pdf" || extension === "pdf") return "pdf";
-  if (OFFICE_EXTENSIONS.has(extension)) return "office";
   if (mimeType.startsWith("text/") || CODE_EXTENSIONS.has(extension)) {
     return "code";
   }
@@ -183,6 +188,8 @@ export function FilePreviewModal({
   const hasNext = currentIndex >= 0 && currentIndex < files.length - 1;
 
   useEffect(() => {
+    if (fileType === "unknown") return;
+
     const controller = new AbortController();
     setLoading(true);
     setError(null);
@@ -190,27 +197,10 @@ export function FilePreviewModal({
 
     async function loadPreviewUrl() {
       try {
-        const endpoint =
-          fileType === "office"
-            ? `/api/storage/office-preview?id=${encodeURIComponent(file.id)}`
-            : `/api/storage/download?id=${encodeURIComponent(file.id)}`;
-        let response = await fetch(endpoint, { signal: controller.signal });
-        let attempts = 0;
-        while (
-          fileType === "office" &&
-          response.status === 202 &&
-          attempts < 150
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          if (controller.signal.aborted) return;
-          response = await fetch(endpoint, { signal: controller.signal });
-          attempts += 1;
-        }
-        if (response.status === 202) {
-          throw new Error(
-            "This Office preview is still converting. Try again shortly.",
-          );
-        }
+        const response = await fetch(
+          `/api/storage/download?id=${encodeURIComponent(file.id)}`,
+          { signal: controller.signal },
+        );
         const result = (await response.json()) as {
           url?: string;
           error?: string;
@@ -218,7 +208,7 @@ export function FilePreviewModal({
         if (!response.ok || !result.url) {
           throw new Error(result.error || "Unable to create a preview URL");
         }
-        setUrl(result.url);
+        setUrl(await prepareStorageTransfer(result.url));
       } catch (previewError) {
         if (controller.signal.aborted) return;
         setError(
@@ -299,7 +289,9 @@ export function FilePreviewModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [navigateNext, navigatePrevious, onClose]);
 
-  const downloadUrl = `/api/storage/download?action=download&download=true&id=${encodeURIComponent(file.id)}`;
+  const downloadUrl = isEncryptedObject(file.s3_key)
+    ? storageTransferUrl(file.id, "original", { download: true })
+    : `/api/storage/download?action=download&download=true&id=${encodeURIComponent(file.id)}`;
 
   return (
     <div
@@ -323,13 +315,13 @@ export function FilePreviewModal({
           </h2>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <a
+          <StorageDownloadLink
             className="btn btn-ghost btn-sm"
             href={downloadUrl}
             title="Download"
           >
             Download
-          </a>
+          </StorageDownloadLink>
           <button
             ref={closeButtonRef}
             type="button"
@@ -399,7 +391,9 @@ export function FilePreviewModal({
         )}
 
         <div className="flex size-full items-center justify-center p-3 md:p-6">
-          {loading ? (
+          {fileType === "unknown" ? (
+            <PreviewUnavailable downloadUrl={downloadUrl} />
+          ) : loading ? (
             <PreviewSpinner />
           ) : error ? (
             <PreviewError message={error} downloadUrl={downloadUrl} />
@@ -408,7 +402,6 @@ export function FilePreviewModal({
               file={file}
               fileType={fileType}
               url={url}
-              downloadUrl={downloadUrl}
             />
           ) : null}
         </div>
@@ -427,9 +420,9 @@ function PreviewError({
   return (
     <div className="flex flex-col items-center gap-3 text-center">
       <p className="text-sm text-error">{message}</p>
-      <a className="btn btn-sm btn-primary" href={downloadUrl}>
+      <StorageDownloadLink className="btn btn-sm btn-primary" href={downloadUrl}>
         Download instead
-      </a>
+      </StorageDownloadLink>
     </div>
   );
 }
@@ -438,12 +431,10 @@ function PreviewContent({
   file,
   fileType,
   url,
-  downloadUrl,
 }: {
   file: Item;
-  fileType: FileType;
+  fileType: Exclude<FileType, "unknown">;
   url: string;
-  downloadUrl: string;
 }) {
   switch (fileType) {
     case "image":
@@ -454,32 +445,32 @@ function PreviewContent({
       return <AudioPreview url={url} name={file.name} />;
     case "pdf":
       return <PdfPreview url={url} name={file.name} />;
-    case "office":
-      return <PdfPreview url={url} name={file.name} />;
     case "code":
       return <CodePreview itemId={file.id} name={file.name} />;
-    default:
-      return (
-        <div className="flex flex-col items-center gap-4 text-center text-base-content/60">
-          <svg
-            aria-hidden="true"
-            width="64"
-            height="64"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-          >
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <path d="M14 2v6h6" />
-          </svg>
-          <p className="text-sm font-medium">
-            Preview is not available for this file type.
-          </p>
-          <a className="btn btn-sm btn-primary" href={downloadUrl}>
-            Download file
-          </a>
-        </div>
-      );
   }
+}
+
+function PreviewUnavailable({ downloadUrl }: { downloadUrl: string }) {
+  return (
+    <div className="flex flex-col items-center gap-4 text-center text-base-content/60">
+      <svg
+        aria-hidden="true"
+        width="64"
+        height="64"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      >
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+      </svg>
+      <p className="text-sm font-medium">
+        Preview is not available for this file type.
+      </p>
+      <StorageDownloadLink className="btn btn-sm btn-primary" href={downloadUrl}>
+        Download file
+      </StorageDownloadLink>
+    </div>
+  );
 }

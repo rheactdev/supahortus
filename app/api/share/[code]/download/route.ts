@@ -16,5 +16,5 @@ export async function GET(
     );
   }
 
-  return NextResponse.redirect(url);
+  return NextResponse.redirect(new URL(url, request.url));
 }

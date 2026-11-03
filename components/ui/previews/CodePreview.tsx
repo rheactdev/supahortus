@@ -1,5 +1,6 @@
 "use client";
 
+import { prepareStorageTransfer } from "@/lib/storage-transfer-client";
 import { Highlight, Prism, themes } from "prism-react-renderer";
 import { useEffect, useMemo, useState } from "react";
 
@@ -52,6 +53,7 @@ interface CodePreviewProps {
 }
 
 type TextPreviewResponse = {
+  url?: string;
   content?: string;
   truncated?: boolean;
   bytesRead?: number;
@@ -84,6 +86,22 @@ export function CodePreview({ itemId, name }: CodePreviewProps) {
           { signal: controller.signal },
         );
         const result = (await response.json()) as TextPreviewResponse;
+        if (response.ok && result.url) {
+          const url = await prepareStorageTransfer(result.url);
+          const preview = await fetch(url, {
+            headers: { Range: "bytes=0-1048575" },
+            signal: controller.signal,
+          });
+          if (preview.status === 416 && preview.headers.get("Content-Range") === "bytes */0") return;
+          if (preview.status !== 206) throw new Error("Unable to load encrypted text preview");
+          const range = preview.headers.get("Content-Range")?.match(/^bytes 0-(\d+)\/(\d+)$/);
+          if (!range || Number(range[1]) >= 1048576) {
+            throw new Error("Invalid encrypted text preview range");
+          }
+          setContent(await preview.text());
+          setTruncated(Number(range[1]) + 1 < Number(range[2]));
+          return;
+        }
         if (!response.ok || typeof result.content !== "string") {
           throw new Error(result.error || "Unable to load text preview");
         }

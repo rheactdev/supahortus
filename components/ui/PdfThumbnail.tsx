@@ -1,5 +1,6 @@
 "use client";
 
+import { prepareStorageTransfer } from "@/lib/storage-transfer-client";
 import { useEffect, useRef, useState } from "react";
 import { PdfIcon } from "@/components/icons/liquid-glass";
 import type {
@@ -67,7 +68,7 @@ export function PdfThumbnail({ itemId, name, fit }: PdfThumbnailProps) {
         ).toString();
 
         const task = pdfjs.getDocument({
-          url,
+          url: await prepareStorageTransfer(url),
           maxImageSize: 16_000_000,
         });
         loadingTask = task;

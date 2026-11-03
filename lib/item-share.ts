@@ -4,6 +4,8 @@ import { GetObjectCommand, type GetObjectCommandInput } from "@aws-sdk/client-s3
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
+import { isEncryptedObject } from "@/lib/storage-encryption";
+import { storageTransferUrl } from "@/lib/storage-transfer-url";
 import { getThumbnailUrls, type BreadcrumbItem, type Item } from "@/lib/data";
 
 type ShareRecord = {
@@ -45,7 +47,7 @@ export async function getItemShareContext(
   const { data: root } = await supabaseAdmin
     .from("items")
     .select(
-      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, preview_key, preview_status, mime_type, created_at",
+      "id, garden_id, parent_id, name, type, s3_key, mime_type, created_at",
     )
     .eq("id", share.item_id)
     .eq("status", "ready")
@@ -84,7 +86,7 @@ async function getReadyItem(itemId: string): Promise<Item | null> {
   const { data } = await supabaseAdmin
     .from("items")
     .select(
-      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, preview_key, preview_status, mime_type, created_at",
+      "id, garden_id, parent_id, name, type, s3_key, mime_type, created_at",
     )
     .eq("id", itemId)
     .eq("status", "ready")
@@ -115,7 +117,7 @@ export async function getSharedFolderView(
   const { data } = await supabaseAdmin
     .from("items")
     .select(
-      "id, garden_id, parent_id, name, type, s3_key, thumbnail_key, preview_key, preview_status, mime_type, created_at",
+      "id, garden_id, parent_id, name, type, s3_key, mime_type, created_at",
     )
     .eq("garden_id", context.root.garden_id)
     .eq("parent_id", folder.id)
@@ -135,6 +137,12 @@ export async function getSharedFolderView(
   const thumbnailUrls = imageIds.length
     ? await getThumbnailUrls(context.root.garden_id, imageIds)
     : {};
+
+  for (const item of items) {
+    if (thumbnailUrls[item.id] && isEncryptedObject(item.s3_key)) {
+      thumbnailUrls[item.id] = storageTransferUrl(item.id, "thumbnail", { share: code });
+    }
+  }
 
   return {
     ...context,
@@ -168,10 +176,10 @@ async function getShareBreadcrumbs(
   return current.id === root.id ? breadcrumbs : [];
 }
 
-export async function getSharedItemDownloadUrl(
+export async function getSharedFile(
   code: string,
   itemId?: string,
-): Promise<string | null> {
+): Promise<Item | null> {
   const context = await getItemShareContext(code);
   if (!context) return null;
 
@@ -182,6 +190,16 @@ export async function getSharedItemDownloadUrl(
     !(await isWithinSharedRoot(context.root, item))
   ) {
     return null;
+  }
+
+  return item;
+}
+
+export async function getSharedItemDownloadUrl(code: string, itemId?: string) {
+  const item = await getSharedFile(code, itemId);
+  if (!item) return null;
+  if (isEncryptedObject(item.s3_key)) {
+    return storageTransferUrl(item.id, "original", { download: true, share: code });
   }
 
   const input: GetObjectCommandInput = {

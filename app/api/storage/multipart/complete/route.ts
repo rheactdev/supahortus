@@ -1,3 +1,4 @@
+import { isEncryptedObject, requireUploadedEncryptedObject } from "@/lib/storage-encryption";
 import { NextResponse } from "next/server";
 import { CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
@@ -25,23 +26,29 @@ export async function POST(request: Request) {
 
     await requirePendingUpload(itemId, key, userId);
 
-    await s3Client.send(
-      new CompleteMultipartUploadCommand({
-        Bucket: BUCKET_NAME,
-        Key: key,
-        UploadId: uploadId,
-        MultipartUpload: {
-          Parts: parts.map((p: { PartNumber: number; ETag: string }) => ({
-            PartNumber: p.PartNumber,
-            ETag: p.ETag,
-          })),
-        },
-      })
-    );
+    try {
+      await s3Client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: BUCKET_NAME,
+          Key: key,
+          UploadId: uploadId,
+          MultipartUpload: {
+            Parts: parts.map((p: { PartNumber: number; ETag: string }) => ({
+              PartNumber: p.PartNumber,
+              ETag: p.ETag,
+            })),
+          },
+        })
+      );
+    } catch (error) {
+      if (!isEncryptedObject(key)) throw error;
+      // The completion response may have been lost after B2 committed the object.
+      await requireUploadedEncryptedObject(key);
+    }
 
     return NextResponse.json({ completed: true });
-  } catch (error) {
-    console.error("Complete multipart error:", error);
+  } catch {
+    console.error("Multipart completion failed");
     return NextResponse.json(
       { error: "Failed to complete multipart upload" },
       { status: 500 }

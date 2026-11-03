@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { Folder } from "@/components/icons/liquid-glass";
 import { S3SyncButton } from "@/components/ui/S3SyncButton";
-import { GenerateThumbnailsButton } from "@/components/ui/GenerateThumbnailsButton";
-import { GenerateOfficePreviewsButton } from "@/components/ui/GenerateOfficePreviewsButton";
 
 export default async function AdminDashboardPage() {
   return (
@@ -14,8 +12,6 @@ export default async function AdminDashboardPage() {
         </div>
         <div className="ml-auto flex flex-col gap-2 items-end">
           <S3SyncButton />
-          <GenerateThumbnailsButton />
-          <GenerateOfficePreviewsButton />
         </div>
       </div>
 

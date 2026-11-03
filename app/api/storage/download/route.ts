@@ -1,3 +1,5 @@
+import { isEncryptedObject } from "@/lib/storage-encryption";
+import { storageTransferUrl } from "@/lib/storage-transfer-url";
 import { NextResponse } from "next/server";
 import { GetObjectCommand, type GetObjectCommandInput } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -42,6 +44,16 @@ export async function GET(request: Request) {
       await requireGardenPermission(item.garden_id, userId, "read");
     } catch {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    if (isEncryptedObject(item.s3_key)) {
+      const url = storageTransferUrl(id, "original", {
+        download: searchParams.get("download") === "true",
+      });
+      if (searchParams.get("action") === "download") {
+        return NextResponse.redirect(new URL(url, request.url));
+      }
+      return NextResponse.json({ url }, { headers: { "Cache-Control": "no-store" } });
     }
 
     const commandConfig: GetObjectCommandInput = {

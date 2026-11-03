@@ -1,3 +1,4 @@
+import { isEncryptedObject, storageTransferUrl } from "@/lib/storage-transfer-url";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
@@ -43,6 +44,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    if (isEncryptedObject(item.s3_key)) {
+      return NextResponse.json({ url: storageTransferUrl(id, "original") }, {
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
+
     const object = await s3Client.send(
       new GetObjectCommand({
         Bucket: BUCKET_NAME,
@@ -72,8 +79,8 @@ export async function GET(request: Request) {
         },
       },
     );
-  } catch (error) {
-    console.error("Text preview error:", error);
+  } catch {
+    console.error("Text preview failed");
     return NextResponse.json(
       { error: "Failed to load text preview" },
       { status: 500 },

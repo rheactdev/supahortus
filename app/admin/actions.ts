@@ -1,5 +1,6 @@
 "use server";
 
+import { isEncryptedObject } from "@/lib/storage-transfer-url";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
 import {
   ListObjectsV2Command,
@@ -7,9 +8,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
-import { Client } from "@upstash/qstash";
 import { requireAdmin } from "@/lib/admin-access";
-import { isOfficeFile, queueOfficePreview } from "@/lib/office-preview";
 
 type SyncedItem = {
   id: string;
@@ -58,17 +57,25 @@ export async function syncS3ToDb() {
     continuationToken = response.NextContinuationToken;
   } while (continuationToken);
 
-  // 3. Process each S3 key to build items
-  // We'll gather all existing items in DB to avoid creating duplicates
-  const { data: existingItems, error: itemsError } = await supabaseAdmin
-    .from("items")
-    .select("id, s3_key, garden_id, parent_id");
-  
-  if (itemsError) throw new Error("Failed to fetch existing items");
-
+  // 3. Index originals and derivative references before importing bucket objects.
   const existingMap = new Map<string, SyncedItem>();
-  for (const item of existingItems || []) {
-    existingMap.set(item.s3_key, item);
+  const derivativeKeys = new Set<string>();
+  const pageSize = 500;
+
+  for (let start = 0; ; start += pageSize) {
+    const { data: items, error } = await supabaseAdmin
+      .from("items")
+      .select("id, s3_key, garden_id, parent_id, thumbnail_key, preview_key")
+      .order("id")
+      .range(start, start + pageSize - 1);
+    if (error || !items) throw new Error("Failed to fetch existing items");
+
+    for (const item of items) {
+      existingMap.set(item.s3_key, item);
+      if (item.thumbnail_key) derivativeKeys.add(item.thumbnail_key);
+      if (item.preview_key) derivativeKeys.add(item.preview_key);
+    }
+    if (items.length < pageSize) break;
   }
 
   const newItemsToInsert: SyncedItem[] = [];
@@ -78,6 +85,8 @@ export async function syncS3ToDb() {
   s3Keys.sort();
 
   for (const s3Key of s3Keys) {
+    // Keep generated assets and encrypted uploads out of the legacy import.
+    if (isEncryptedObject(s3Key) || derivativeKeys.has(s3Key)) continue;
     // format: hortus/[slug]/...
     const parts = s3Key.split("/");
     if (parts.length < 3) continue; 
@@ -159,65 +168,4 @@ export async function syncS3ToDb() {
     addedCount: newItemsToInsert.length,
     scannedCount: s3Keys.length
   };
-}
-
-export async function generateMissingThumbnails() {
-  await requireAdmin();
-
-  const qstash = new Client({ token: process.env.QSTASH_TOKEN || "" });
-  
-  const { data: items, error } = await supabaseAdmin
-    .from("items")
-    .select("id, garden_id, name, s3_key")
-    .is("thumbnail_key", null)
-    .eq("type", "file");
-    
-  if (error || !items) throw new Error("Failed to fetch items");
-
-  const targets = items.filter(i => /\.(psd|afdesign|afphoto|afpub|af)$/i.test(i.name));
-  
-  const baseUrl = process.env.UPSTASH_WORKFLOW_URL || 
-    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"));
-
-  let count = 0;
-  for (const item of targets) {
-    await qstash.publishJSON({
-      url: `${baseUrl}/api/workflow/thumbnail`,
-      headers: process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
-        "x-vercel-protection-bypass": process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
-      } : undefined,
-      body: {
-        gardenId: item.garden_id,
-        itemId: item.id,
-        s3Key: item.s3_key,
-        filename: item.name,
-      },
-    });
-    count++;
-  }
-  
-  return { success: true, count };
-}
-
-export async function generateMissingOfficePreviews() {
-  await requireAdmin();
-
-  const { data: items, error } = await supabaseAdmin
-    .from("items")
-    .select("id, garden_id, name, s3_key, preview_status")
-    .eq("type", "file")
-    .eq("status", "ready");
-
-  if (error || !items) throw new Error("Failed to fetch Office documents");
-
-  const targets = items.filter(
-    (item) => isOfficeFile(item.name) && item.preview_status !== "ready",
-  );
-
-  for (const item of targets) {
-    await queueOfficePreview(item);
-  }
-
-  return { success: true, count: targets.length };
 }

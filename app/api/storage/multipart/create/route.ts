@@ -1,3 +1,4 @@
+import { encryptionInput, newUploadKey } from "@/lib/storage-encryption";
 import { NextResponse } from "next/server";
 import { CreateMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { s3Client, BUCKET_NAME } from "@/lib/s3";
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
   try {
     const { filename, contentType, parentId, gardenId } = await request.json();
 
-    if (!filename || !gardenId) {
+    if (typeof filename !== "string" || !filename || /[/\\]/.test(filename) || !gardenId) {
       return NextResponse.json(
         { error: "filename and gardenId are required" },
         { status: 400 }
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No upload permission" }, { status: 403 });
     }
 
-    const s3Key = await buildS3Key(gardenId, parentId || null, filename);
+    const s3Key = newUploadKey(await buildS3Key(gardenId, parentId || null, filename));
 
     // Insert pending item record
     const { data: item, error: insertError } = await supabaseAdmin
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
       new CreateMultipartUploadCommand({
         Bucket: BUCKET_NAME,
         Key: s3Key,
+        ...encryptionInput(s3Key),
         ContentType: contentType || "application/octet-stream",
       })
     );
@@ -64,8 +66,8 @@ export async function POST(request: Request) {
       key: s3Key,
       itemId: item.id,
     });
-  } catch (error) {
-    console.error("Multipart create error:", error);
+  } catch {
+    console.error("Multipart initialization failed");
     return NextResponse.json(
       { error: "Failed to create multipart upload" },
       { status: 500 }

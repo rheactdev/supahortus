@@ -1,7 +1,7 @@
+import { encryptionInput, signObject } from "@/lib/storage-encryption";
 import { NextResponse } from "next/server";
 import { UploadPartCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { s3Client, BUCKET_NAME } from "@/lib/s3";
+import { BUCKET_NAME } from "@/lib/s3";
 import { createClient } from "@/lib/supabase/server";
 import { requirePendingUpload } from "@/lib/storage-access";
 
@@ -33,15 +33,16 @@ export async function GET(request: Request) {
     const command = new UploadPartCommand({
       Bucket: BUCKET_NAME,
       Key: key,
+      ...encryptionInput(key),
       UploadId: uploadId,
       PartNumber: Number(partNumber),
     });
 
-    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-
-    return NextResponse.json({ url });
-  } catch (error) {
-    console.error("Sign part error:", error);
+    return NextResponse.json(await signObject(command), {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch {
+    console.error("Multipart signing failed");
     return NextResponse.json(
       { error: "Failed to sign part" },
       { status: 500 }
