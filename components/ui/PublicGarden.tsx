@@ -75,6 +75,7 @@ export async function PublicGarden({
         folderId={folderId}
         gardenId={context.garden.id}
         gardenSlug={context.garden.slug}
+        gardenName={context.garden.name}
         userId={userId}
         canUpload={context.link.can_upload}
         canDelete={context.link.can_delete}

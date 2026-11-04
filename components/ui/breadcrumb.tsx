@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Folder, HardDrive } from "../icons/liquid-glass"
+import { Folder, HardDrive, Home } from "../icons/liquid-glass"
 
 interface BreadcrumbItem {
     id: string;
@@ -9,16 +9,23 @@ interface BreadcrumbItem {
 interface BreadcrumbProps {
     breadcrumbs: BreadcrumbItem[];
     basePath: string;
+    gardenName: string;
 }
 
-export const Breadcrumb = ({ breadcrumbs, basePath }: BreadcrumbProps) => {
+export const Breadcrumb = ({ breadcrumbs, basePath, gardenName }: BreadcrumbProps) => {
     return (
         <div className="breadcrumbs text-sm">
             <ul>
                 <li>
+                    <Link href="/" className="inline-flex items-center gap-2">
+                        <Home />
+                        <span>Home</span>
+                    </Link>
+                </li>
+                <li>
                     <Link href={basePath} >
                         <HardDrive />
-                        <span>Root</span>
+                        <span>{gardenName}</span>
                     </Link>
                 </li>
                 {breadcrumbs.map((crumb) => (

@@ -73,6 +73,7 @@ async function FolderContents({ params }: FolderPageProps) {
       folderId={folderId}
       gardenId={garden.id}
       gardenSlug={gardenSlug}
+      gardenName={garden.name}
       userId={userId}
       canUpload={membership.can_upload}
       canDelete={membership.can_delete}

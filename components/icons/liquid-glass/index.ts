@@ -1,4 +1,5 @@
 import { HardDrive } from "./hard-drive";
+import { Home } from "./home";
 import { Upload } from "./upload";
 import { Folder } from "./folder";
 import { FileIcon } from "./file";
@@ -22,7 +23,7 @@ import { Clipboard } from "./clipboard";
 import { Copy } from "./copy";
 
 export { 
-    HardDrive, Upload,
+    HardDrive, Home, Upload,
     Folder, FileIcon, Download, Palette, Close, Add, Sun, Moon,
     Trash, Checkmark, Video, Music, PdfIcon, DocumentIcon,
     Share, MenuDots, Refresh, ArrowLeft, Clipboard, Copy

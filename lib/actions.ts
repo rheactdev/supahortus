@@ -610,7 +610,22 @@ export async function createFolder(
   if (!name || name.includes("/")) throw new Error("Invalid folder name");
   await requireMembership(gardenId, userId, "upload");
 
+  const folder = await insertFolder(name, gardenId, parentId);
+  updateTag(`garden-${gardenId}`);
+  return { id: folder.id, s3Key: folder.s3_key };
+}
+
+async function insertFolder(
+  name: string,
+  gardenId: string,
+  parentId: string | null,
+  prepareMarkerFirst = false,
+) {
   const s3Key = await buildS3Key(gardenId, parentId, `${name}/`);
+  const marker = new PutObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key, Body: "" });
+
+  // Imports can reuse a ready row immediately, so publish it after the marker is ready.
+  if (prepareMarkerFirst) await s3Client.send(marker);
 
   const { data: folder, error: insertError } = await supabaseAdmin
     .from("items")
@@ -626,14 +641,83 @@ export async function createFolder(
     .single();
 
   if (insertError) throw insertError;
+  if (!prepareMarkerFirst) await s3Client.send(marker);
+  return folder;
+}
 
-  // Create empty S3 object
-  await s3Client.send(
-    new PutObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key, Body: "" })
-  );
+async function findFolderImportEntry(gardenId: string, parentId: string | null, name: string) {
+  const query = supabaseAdmin.from("items").select("id, type, status")
+    .eq("garden_id", gardenId).eq("name", name);
+  const { data, error } = await (parentId ? query.eq("parent_id", parentId) : query.is("parent_id", null))
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
 
-  updateTag(`garden-${gardenId}`);
-  return { id: folder.id, s3Key: folder.s3_key };
+export async function prepareFolderUpload(
+  gardenId: string,
+  userId: string,
+  parentId: string | null,
+  directoryPaths: string[],
+): Promise<{ folderIds: Record<string, string>; created: boolean; error?: never } |
+  { error: string; created: boolean; folderIds?: never }> {
+  let created = false;
+  let currentPath = "";
+
+  try {
+    await requireMembership(gardenId, userId, "upload");
+    if ((parentId !== null && (typeof parentId !== "string" || !parentId)) ||
+        !Array.isArray(directoryPaths) || directoryPaths.length === 0) {
+      return { error: "Invalid folder upload destination or paths", created };
+    }
+    await buildS3Key(gardenId, parentId, "");
+
+    const paths = new Set<string>();
+    for (const path of directoryPaths) {
+      if (typeof path !== "string") return { error: "Invalid folder path", created };
+      let prefix = "";
+      for (const name of path.split("/")) {
+        if (!name || name === "." || name === ".." || name.includes("\\") || name.includes("\0")) {
+          return { error: `Invalid folder path: ${path}`, created };
+        }
+        prefix = prefix ? `${prefix}/${name}` : name;
+        paths.add(prefix);
+      }
+    }
+
+    const folderIds = new Map<string, string>();
+    for (const path of paths) {
+      currentPath = path;
+      const separator = path.lastIndexOf("/");
+      const destination = separator < 0 ? parentId : folderIds.get(path.slice(0, separator))!;
+      const name = path.slice(separator + 1);
+      let entry = await findFolderImportEntry(gardenId, destination, name);
+      if (!entry) {
+        try {
+          const folder = await insertFolder(name, gardenId, destination, true);
+          created = true;
+          folderIds.set(path, folder.id);
+          continue;
+        } catch (error) {
+          if (!(error && typeof error === "object" && "code" in error && error.code === "23505")) throw error;
+          entry = await findFolderImportEntry(gardenId, destination, name);
+          if (!entry) throw error;
+        }
+      }
+
+      if (entry.type !== "folder" || entry.status !== "ready") {
+        return { error: `Cannot import “${path}”. An existing file or unavailable folder blocks this path.`, created };
+      }
+      folderIds.set(path, entry.id);
+    }
+
+    return { folderIds: Object.fromEntries(folderIds), created };
+  } catch (error) {
+    if (currentPath) return { error: `Could not prepare “${currentPath}”. Try uploading again.`, created };
+    return { error: error instanceof Error ? error.message : "Could not prepare folder upload", created };
+  } finally {
+    if (created) updateTag(`garden-${gardenId}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

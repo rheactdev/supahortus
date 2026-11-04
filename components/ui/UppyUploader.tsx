@@ -6,6 +6,7 @@ import { useUppyState } from "@uppy/react";
 import AwsS3 from "@uppy/aws-s3";
 import ThumbnailGenerator from "@uppy/thumbnail-generator";
 import { Upload } from "@/components/icons/liquid-glass";
+import { prepareFolderUpload } from "@/lib/actions";
 import { QueueUpload } from "./queueupload";
 
 const MULTIPART_THRESHOLD = 50 * 1024 * 1024; // 50 MB
@@ -18,10 +19,22 @@ async function readUploadResponse(response: Response, fallback: string) {
   throw new Error(`${message} (HTTP ${response.status})`);
 }
 
-export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId: string, parentId: string | null, onUploadSuccess: () => void }) {
+function getDirectoryPath(relativePath: unknown) {
+  if (typeof relativePath !== "string") return "";
+  const separator = relativePath.lastIndexOf("/");
+  return separator < 0 ? "" : relativePath.slice(0, separator);
+}
+
+export function UppyUploader({ gardenId, parentId, userId, onUploadSuccess }: {
+  gardenId: string;
+  parentId: string | null;
+  userId: string;
+  onUploadSuccess: () => void;
+}) {
   const [isOpen, setIsOpen] = useState(false);
-  const parentIdRef = useRef(parentId);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [phase, setPhase] = useState<"idle" | "preparing" | "uploading">("idle");
+  const [error, setError] = useState("");
+  const destinations = useRef(new Map<string, string | null>());
   const uploadTokens = useRef(new Map<string, string>());
 
   function requireUploadToken(fileId: string) {
@@ -30,13 +43,21 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
     return token;
   }
 
-  useEffect(() => {
-    parentIdRef.current = parentId;
-  }, [parentId]);
+  function requireDestination(fileId: string) {
+    const destination = destinations.current.get(fileId);
+    if (destination === undefined) throw new Error("Upload destination is missing");
+    return destination;
+  }
 
   const [uppy] = useState(() => new Uppy({
     id: "s3Uploader",
     autoProceed: false,
+    onBeforeFileAdded(file, files) {
+      const path = file.meta.relativePath;
+      // Uppy lowercases paths for its default IDs, but folder paths are case-sensitive.
+      const id = typeof path === "string" ? `folder:${path}` : file.id;
+      return Object.hasOwn(files, id) ? false : { ...file, id };
+    },
   }).use(AwsS3, {
     shouldUseMultipart: (file) => (file.size ?? 0) > MULTIPART_THRESHOLD,
 
@@ -48,7 +69,7 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
         body: JSON.stringify({
           filename: file.name,
           contentType: file.type || "application/octet-stream",
-          parentId: parentIdRef.current,
+          parentId: requireDestination(file.id),
           gardenId,
         }),
       });
@@ -68,7 +89,7 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
         body: JSON.stringify({
           filename: file.name,
           contentType: file.type || "application/octet-stream",
-          parentId: parentIdRef.current,
+          parentId: requireDestination(file.id),
           gardenId,
         }),
       });
@@ -134,49 +155,101 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
   const fileArray: UppyFile<Meta, Record<string, never>>[] = Object.values(uppyFiles);
 
   useEffect(() => {
-    const handleComplete = async (result: { successful?: { id: string }[] }) => {
-      const files = result.successful ?? [];
-      if (!files.length) return;
+    const confirmUploads = async (fileIds: string[]) => {
+      const confirmations = await Promise.all(fileIds.map(async (id) => {
+        const file = uppy.getFile(id);
+        if (!file?.progress.uploadComplete || file.error) return false;
 
-      const confirmations = await Promise.allSettled(files.map(async (file) => {
-        const uploadToken = uploadTokens.current.get(file.id);
-        if (!uploadToken) throw new Error("Upload authorization is missing");
-        const response = await fetch("/api/storage/confirm", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ uploadToken }),
-        });
-        if (!response.ok) throw new Error("Upload confirmation failed");
-        uploadTokens.current.delete(file.id);
+        try {
+          const response = await fetch("/api/storage/confirm", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ uploadToken: requireUploadToken(id) }),
+          });
+          await readUploadResponse(response, "Upload confirmation failed");
+          return true;
+        } catch (error) {
+          if (uppy.getFile(id)) {
+            uppy.setFileMeta(id, {
+              confirmationError: error instanceof Error ? error.message : "Upload confirmation failed",
+            });
+          }
+          return false;
+        } finally {
+          uploadTokens.current.delete(id);
+        }
       }));
 
-      if (confirmations.some(({ status }) => status === "rejected")) {
-        window.alert("Some uploads reached storage but could not be confirmed.");
-      }
-      if (confirmations.some(({ status }) => status === "fulfilled")) {
-        onUploadSuccess();
-      }
+      if (confirmations.some(Boolean)) onUploadSuccess();
     };
-    uppy.on("complete", handleComplete);
 
+    uppy.addPostProcessor(confirmUploads);
     return () => {
-      uppy.off("complete", handleComplete);
+      uppy.removePostProcessor(confirmUploads);
     };
   }, [uppy, onUploadSuccess]);
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    files.forEach(file => {
-      try {
-        uppy.addFile({ source: "local", name: file.name, type: file.type, data: file });
-      } catch { /* ignore dupes */ }
-    });
-    e.target.value = "";
+    setError("");
+    try {
+      uppy.addFiles(files.map(file => ({
+        source: "local",
+        name: file.name,
+        type: file.type,
+        data: file,
+        meta: file.webkitRelativePath ? { relativePath: file.webkitRelativePath } : {},
+      })));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not add files to the queue");
+    } finally {
+      e.target.value = "";
+    }
+  };
+
+  const handleUpload = async () => {
+    if (phase !== "idle") return;
+
+    const files = uppy.getFiles().filter(file =>
+      !file.progress.uploadComplete && !destinations.current.has(file.id)
+    );
+    const directoryPaths = [...new Set(files.map(file => getDirectoryPath(file.meta.relativePath)).filter(Boolean))];
+    const destination = parentId;
+    setError("");
+
+    try {
+      let folderIds: Record<string, string> = {};
+      if (directoryPaths.length > 0) {
+        setPhase("preparing");
+        const result = await prepareFolderUpload(gardenId, userId, destination, directoryPaths);
+        if (result.created) onUploadSuccess();
+        if (result.folderIds === undefined) {
+          setError(result.error);
+          return;
+        }
+        folderIds = result.folderIds;
+      }
+
+      for (const file of files) {
+        const path = getDirectoryPath(file.meta.relativePath);
+        destinations.current.set(file.id, path ? folderIds[path] : destination);
+      }
+
+      setPhase("uploading");
+      await uppy.upload();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Upload failed");
+    } finally {
+      setPhase("idle");
+    }
   };
 
   const handleClose = () => {
+    if (phase === "preparing") return;
     setIsOpen(false);
+    setError("");
     uppy.cancelAll();
+    destinations.current.clear();
   };
 
   return (
@@ -184,6 +257,7 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
       <button
         className="btn btn-primary btn-sm"
         onClick={() => setIsOpen(true)}
+        disabled={phase !== "idle"}
       >
         <Upload size={16} />
         <span className="hidden sm:block">Upload Files</span>
@@ -191,45 +265,66 @@ export function UppyUploader({ gardenId, parentId, onUploadSuccess }: { gardenId
 
       {isOpen && (
         <dialog id="uppy_modal" className="modal modal-open">
-          <div className="modal-box w-full max-w-6xl h-[90vh]">
+          <div className="modal-box flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden">
 
-            <h3 className="font-bold text-lg flex items-center gap-2">
+            <h3 className="flex shrink-0 items-center gap-2 text-lg font-bold">
               <Upload size={24} /> Upload to {parentId ? "Folder" : "Bucket Root"}
             </h3>
 
-            <div className="py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto py-4 custom-scrollbar">
               <fieldset className="fieldset">
-                <legend className="fieldset-legend">Pick a file</legend>
-                <input type="file" multiple onChange={handleFileInputChange} ref={fileInputRef} className="file-input w-full hover:border-primary" />
+                <legend className="fieldset-legend">Choose files</legend>
+                <input type="file" multiple aria-label="Choose files" onChange={handleFileInputChange} disabled={phase !== "idle"} className="file-input w-full hover:border-primary" />
               </fieldset>
 
-              {fileArray.length > 0 && (
+              {"webkitdirectory" in HTMLInputElement.prototype && (
                 <fieldset className="fieldset">
+                  <legend className="fieldset-legend">Choose folder</legend>
+                  <input
+                    type="file"
+                    aria-label="Choose folder"
+                    ref={input => { if (input) input.webkitdirectory = true; }}
+                    onChange={handleFileInputChange}
+                    disabled={phase !== "idle"}
+                    className="file-input w-full hover:border-primary"
+                  />
+                </fieldset>
+              )}
+
+              {error && <p className="mt-2 text-sm text-error" role="alert">{error}</p>}
+
+              {fileArray.length > 0 && (
+                <fieldset className="fieldset min-w-0">
                   <legend className="fieldset-legend">Queue ({fileArray.length})</legend>
-                  <QueueUpload files={fileArray} onRemove={(id) => uppy.removeFile(id)} />
+                  <QueueUpload
+                    files={fileArray}
+                    disableRemoval={phase === "preparing"}
+                    onRemove={(id) => {
+                      uppy.removeFile(id);
+                      destinations.current.delete(id);
+                    }}
+                  />
                 </fieldset>
               )}
 
             </div>
-            <div className="modal-action absolute bottom-5 right-5">
+            <div className="modal-action shrink-0">
               <form method="dialog" className="flex gap-2">
-                <button className="btn btn-ghost" onClick={handleClose}>Cancel</button>
+                <button type="button" className="btn btn-ghost" onClick={handleClose} disabled={phase === "preparing"}>Cancel</button>
                 <button
                   type="button"
-                  onClick={() => uppy.upload()}
+                  onClick={handleUpload}
                   className="btn btn-primary"
-                  disabled={fileArray.length === 0 || fileArray.every(f => f.progress.uploadComplete)}
+                  disabled={phase !== "idle" || fileArray.length === 0 || fileArray.every(f => f.progress.uploadComplete)}
                 >
-                  {fileArray.some(f => Number(f.progress.bytesUploaded) > 0 && !f.progress.uploadComplete)
-                    ? <span className="loading loading-ring loading-sm"></span>
-                    : "Upload"}
+                  {phase === "preparing" ? "Preparing folders…" : phase === "uploading" ? "Uploading…" : "Upload"}
                 </button>
               </form>
             </div>
           </div>
 
-          <form method="dialog" className="modal-backdrop" onClick={handleClose}>
-            <button>close</button>
+          <form method="dialog" className="modal-backdrop">
+            <button type="button" onClick={handleClose} disabled={phase === "preparing"}>close</button>
           </form>
         </dialog>
       )}

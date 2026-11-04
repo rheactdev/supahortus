@@ -3,6 +3,7 @@ import { FileIcon, Trash, Video, Music, PdfIcon, DocumentIcon } from "@/componen
 
 interface QueueUploadProps {
     files: UppyFile<Meta, Record<string, never>>[];
+    disableRemoval: boolean;
     onRemove: (id: string) => void;
 }
 
@@ -22,18 +23,20 @@ const formatSize = (bytes: number | null) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
-export const QueueUpload = ({ files, onRemove }: QueueUploadProps) => {
+export const QueueUpload = ({ files, disableRemoval, onRemove }: QueueUploadProps) => {
     return (
-        <div className="grid grid-cols-3 sm:grid-cols-6 max-h-[350px] overflow-y-auto p-1 custom-scrollbar gap-4 mt-2">
+        <div className="mt-2 grid grid-cols-2 gap-4 p-1 sm:grid-cols-3 lg:grid-cols-6">
             {files.map((file) => {
+                const displayName = typeof file.meta.relativePath === "string" ? file.meta.relativePath : file.name;
+                const confirmationError = typeof file.meta.confirmationError === "string" ? file.meta.confirmationError : null;
                 return (
                     <div
                         key={file.id}
                         className="card bg-base-100 border border-base-content/10 hover:border-primary/30 group overflow-hidden"
                     >
-                        <div className="card-body p-0 flex flex-col h-full">
+                        <div className="card-body flex flex-col p-0">
                             {/* Visual Preview Area */}
-                            <div className="h-28 w-full bg-base-200/30 relative flex items-center justify-center border-b border-base-content/5 overflow-hidden">
+                            <div className="relative flex h-28 w-full shrink-0 items-center justify-center overflow-hidden border-b border-base-content/5 bg-base-200/30">
                                 {file.preview ? (
                                     <img
                                         src={file.preview}
@@ -49,12 +52,13 @@ export const QueueUpload = ({ files, onRemove }: QueueUploadProps) => {
 
                                 {/* Hover action overlay */}
                                 <div className="absolute inset-0 bg-base-300/60 opacity-0 group-hover:opacity-100 flex items-center justify-center backdrop-blur-sm transition-opacity">
-                                    {!file.progress?.uploadComplete && (
+                                    {(!file.progress?.uploadComplete || confirmationError) && (
                                         <button
                                             type="button"
                                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(file.id); }}
                                             className="btn btn-square btn-error shadow-lg"
                                             title="Remove File"
+                                            disabled={disableRemoval}
                                         >
                                             <Trash size={20} />
                                         </button>
@@ -64,12 +68,15 @@ export const QueueUpload = ({ files, onRemove }: QueueUploadProps) => {
 
                             {/* Metadata Area */}
                             <div className="p-3 flex flex-col gap-1 mt-auto">
-                                <span className="font-medium truncate text-xs" title={file.name}>{file.name}</span>
+                                <span className="font-medium truncate text-xs" title={displayName}>{displayName}</span>
                                 <div className="flex justify-between items-center text-[10px] text-base-content/50">
                                     <span>{formatSize(file.size)}</span>
-                                    {file.progress?.uploadComplete && <span className="text-success font-medium">Done</span>}
+                                    {file.progress?.uploadComplete && !file.progress.postprocess && !confirmationError && (
+                                        <span className="text-success font-medium">Done</span>
+                                    )}
                                 </div>
-                                {file.error && <p className="text-xs text-error">{file.error}</p>}
+                                {confirmationError && <p className="wrap-anywhere text-xs text-error" role="alert">{confirmationError}</p>}
+                                {file.error && <p className="wrap-anywhere text-xs text-error">{file.error}</p>}
                                 <div className={`transition-opacity mt-1 ${Number(file.progress?.bytesUploaded) > 0 && !file.progress?.uploadComplete ? 'opacity-100' : 'opacity-0'} h-1`}>
                                     <progress className="progress progress-primary w-full h-full" value={file.progress?.percentage || 0} max="100"></progress>
                                 </div>
