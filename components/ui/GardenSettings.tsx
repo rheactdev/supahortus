@@ -4,6 +4,7 @@ import { useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { deleteGarden, renameGarden } from "@/lib/actions";
 import type { Garden } from "@/lib/data";
+import { Trash } from "../icons/liquid-glass";
 
 interface GardenSettingsProps {
   garden: Garden;
@@ -158,14 +159,14 @@ export function GardenDangerZone({ garden, userId }: Pick<GardenSettingsProps, "
       <div>
         <button
           type="button"
-          className="btn btn-error btn-outline btn-sm"
+          className="btn btn-error"
           onClick={() => {
             setConfirmation("");
             setError("");
             dialog.current?.showModal();
           }}
         >
-          Delete garden
+          <Trash size={18}/>Delete Garden
         </button>
       </div>
       <dialog

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type FormEvent } from "react";
+import { useRef, useState, useSyncExternalStore, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   addGardenMember,
@@ -10,7 +10,7 @@ import {
   updateGardenPublicLink,
 } from "@/lib/actions";
 import type { GardenMember, GardenPublicLink } from "@/lib/data";
-import { Add } from "../icons/liquid-glass";
+import { Add, Copy, Refresh } from "../icons/liquid-glass";
 
 type Member = GardenMember & { email: string };
 type MemberPermission = "can_upload" | "can_delete";
@@ -295,6 +295,10 @@ export function MemberManager({ gardenId, members, userId, gardenName, publicLin
   );
 }
 
+const subscribeToOrigin = () => () => {};
+const getBrowserOrigin = () => window.location.origin;
+const getServerOrigin = () => "";
+
 function PublicSharing({ gardenId, userId, publicLink }: Pick<MemberManagerProps, "gardenId" | "userId" | "publicLink">) {
   const replaceDialog = useRef<HTMLDialogElement>(null);
   const [link, setLink] = useState(publicLink);
@@ -303,6 +307,7 @@ function PublicSharing({ gardenId, userId, publicLink }: Pick<MemberManagerProps
   const [error, setError] = useState("");
   const [replaceError, setReplaceError] = useState("");
   const [manualUrl, setManualUrl] = useState("");
+  const origin = useSyncExternalStore(subscribeToOrigin, getBrowserOrigin, getServerOrigin);
   const path = link ? `/public/g/${link.token}` : "";
 
   async function copyLink(linkPath: string) {
@@ -391,40 +396,48 @@ function PublicSharing({ gardenId, userId, publicLink }: Pick<MemberManagerProps
             "No link"} */}
       </div>
       <div className="flex min-w-0 flex-col items-start gap-3">
+        <ul role="list" className="list gap-2 text-sm">
+          <li className="list-row min-h-6 items-center gap-x-3 p-0 after:hidden">
+            <label htmlFor="garden-public-link-enabled" className="w-24 text-base-content/70 sm:w-38">
+              Enable public link
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                id="garden-public-link-enabled"
+                type="checkbox"
+                role="switch"
+                className="toggle toggle-sm toggle-success"
+                checked={link?.enabled ?? false}
+                disabled={!link || Boolean(pending)}
+                onChange={() => changePermission("enabled")}
+              />
+              {pending === "enabled" ? <span role="status" className="badge badge-sm">Saving…</span> :
+                link ? (link.enabled ? <span className="badge badge-sm badge-success">Enabled</span> : <span className="badge badge-error badge-sm">Disabled</span>) :
+                  <span className="badge badge-sm">No link</span>}
+            </div>
+          </li>
+          {link && publicPermissions.map(({ field, label }) => (
+            <li key={field} className="list-row min-h-6 items-center gap-x-3 p-0 after:hidden">
+              <label htmlFor={`garden-public-link-${field}`} className="w-24 text-base-content/70 sm:w-38">
+                {label}
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id={`garden-public-link-${field}`}
+                  type="checkbox"
+                  role="switch"
+                  className="toggle toggle-sm"
+                  checked={link[field]}
+                  disabled={Boolean(pending)}
+                  onChange={() => changePermission(field)}
+                />
+                {pending === field && <span role="status">Saving…</span>}
+              </div>
+            </li>
+          ))}
+        </ul>
         {link ? (
           <>
-            <ul role="list" className="list gap-2 text-sm">
-              <li key={"access"} className="list-row min-h-6 items-center gap-x-3 p-0 after:hidden">
-                 <span className="w-24 text-base-content/70 sm:w-38">Enable public link</span>
-                {link && (
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label="Public sharing"
-                    className="toggle toggle-sm toggle-success"
-                    checked={link.enabled}
-                    disabled={Boolean(pending)}
-                    onChange={() => changePermission("enabled")}
-                  />
-                )}
-                {pending === "enabled" ? <span className="badge badge-sm">Saving...</span> :
-                  link ? (link.enabled ? <span className="badge badge-sm badge-success">Enabled</span> : <span className="badge badge-error badge-sm">Disabled</span>) :
-                    "No link"}
-              </li>
-              {publicPermissions.map(({ field, label }) => (
-                <li key={label} className="list-row min-h-6 items-center gap-x-3 p-0 after:hidden">
-                  <span className="w-24 text-base-content/70 sm:w-38">{label}</span>
-                  <input
-                    type="checkbox"
-                    className="toggle toggle-sm"
-                    checked={link[field]}
-                    disabled={Boolean(pending)}
-                    onChange={() => changePermission(field)}
-                  />
-                </li>
-
-              ))}
-            </ul>
             {/* <fieldset className="fieldset">
               {publicPermissions.map(({ field, label }) => (
                 <label key={field} className="label">
@@ -440,18 +453,28 @@ function PublicSharing({ gardenId, userId, publicLink }: Pick<MemberManagerProps
                 </label>
               ))}
             </fieldset> */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex w-full min-w-0 flex-wrap gap-2">
+              <div className="join w-full min-w-0 max-w-lg">
+                <input
+                  type="url"
+                  aria-label="Public link URL"
+                  className="input input-sm join-item min-w-0 flex-1"
+                  value={origin + path}
+                  disabled
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm join-item btn-primary shrink-0"
+                  disabled={Boolean(pending)}
+                  onClick={handleCopy}
+                >
+                  <Copy size={16} />
+                  {pending === "copy" ? "Copying…" : "Copy Link"}
+                </button>
+              </div>
               <button
                 type="button"
-                className="btn btn-sm"
-                disabled={Boolean(pending)}
-                onClick={handleCopy}
-              >
-                {pending === "copy" ? "Copying…" : "Copy link"}
-              </button>
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
+                className="btn btn-error btn-sm"
                 aria-disabled={Boolean(pending)}
                 onClick={() => {
                   if (pending) return;
@@ -459,7 +482,8 @@ function PublicSharing({ gardenId, userId, publicLink }: Pick<MemberManagerProps
                   replaceDialog.current?.showModal();
                 }}
               >
-                Replace link
+                <Refresh size={16} />
+                Replace Link
               </button>
             </div>
           </>
