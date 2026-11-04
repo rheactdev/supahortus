@@ -45,7 +45,7 @@ async function GardenSettingsContents({ params }: SettingsPageProps) {
 
   return (
     <div className="w-full min-w-0 max-w-5xl">
-      <Link href="/admin/gardens" className="inline-flex min-h-8 items-center gap-2 text-sm text-base-content/70 hover:text-base-content hover:underline">
+      <Link href="/admin/gardens" className="btn btn-sm">
         <ArrowLeft size={16} />
         Back
       </Link>

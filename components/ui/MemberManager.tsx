@@ -10,6 +10,7 @@ import {
   updateGardenPublicLink,
 } from "@/lib/actions";
 import type { GardenMember, GardenPublicLink } from "@/lib/data";
+import { Add } from "../icons/liquid-glass";
 
 type Member = GardenMember & { email: string };
 type MemberPermission = "can_upload" | "can_delete";
@@ -131,22 +132,19 @@ export function MemberManager({ gardenId, members, userId, gardenName, publicLin
 
   return (
     <>
-      <section aria-labelledby="garden-members" className="min-w-0 py-6">
-        <div className="flex min-w-0 flex-col gap-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 id="garden-members" className="text-lg font-semibold">Members</h2>
-              <p className="mt-1 text-sm text-base-content/75">Manage who can access this garden.</p>
-            </div>
-            <button ref={addButton} type="button" className="btn btn-outline btn-sm" onClick={openAddDialog}>
-              Add member
+      <section aria-labelledby="garden-members" className="mt-8 min-w-0 pb-6">
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 id="garden-members" className="text-lg font-semibold">Members</h2>
+            <button ref={addButton} type="button" className="btn btn-primary btn-sm" onClick={openAddDialog}>
+              <Add size={16} /> Add Member
             </button>
           </div>
 
           {members.length === 0 ? (
             <p className="text-sm text-base-content/75">No members to show.</p>
           ) : (
-            <div className="max-w-full overflow-x-auto rounded-box">
+            <div className="max-w-full overflow-x-auto rounded-box border border-base-content/10">
               <table className="table table-sm" aria-labelledby="garden-members">
                 <thead>
                   <tr className="bg-base-200/50">

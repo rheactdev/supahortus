@@ -64,16 +64,17 @@ export function GardenSettings({ garden, userId, storagePrefix }: GardenSettings
   }
 
   return (
-    <section aria-label="Garden Details">
+    <section aria-labelledby="garden-settings" className="mt-6 max-w-xl space-y-4">
       <form onSubmit={handleRename}>
-        <fieldset className="fieldset">
-          <label htmlFor="garden-name" className="label">
-            Garden Name
+        {/* <h2 className="text-lg font-semibold">Overview</h2> */}
+        <fieldset className="fieldset gap-2 py-0">
+          <label htmlFor="garden-name" className="label text-base-content text-lg font-semibold">
+            Name
           </label>
-          <div className="join">
+          <div className="join w-full max-w-sm">
             <input
               id="garden-name"
-              className="input join-item"
+              className="input join-item min-w-0 flex-1"
               value={name}
               disabled={pending}
               onChange={(event) => {
@@ -83,7 +84,7 @@ export function GardenSettings({ garden, userId, storagePrefix }: GardenSettings
               }}
               required
             />
-            <button type="submit" className="btn join-item" disabled={!canSave}>
+            <button type="submit" className="btn join-item shrink-0 btn-primary" disabled={!canSave}>
               {pending ? "Saving…" : "Save"}
             </button>
           </div>
@@ -92,11 +93,11 @@ export function GardenSettings({ garden, userId, storagePrefix }: GardenSettings
         </fieldset>
       </form>
 
-      <dl className="mt-9 space-y-2 text-sm">
+      <ul role="list" className="list gap-2 text-sm">
         {details.map(({ label, value }) => (
-          <div key={label} className="grid min-h-6 grid-cols-[6rem_minmax(0,1fr)] items-baseline gap-x-3 sm:grid-cols-[9.5rem_minmax(0,1fr)]">
-            <dt className="text-base-content/70">{label}</dt>
-            <dd className="flex min-w-0 items-baseline gap-2.5">
+          <li key={label} className="list-row min-h-6 items-center gap-x-3 p-0 after:hidden">
+            <span className="w-24 text-base-content/70 sm:w-38">{label}</span>
+            <div className="list-col-grow flex min-w-0 items-center gap-2.5">
               {label === "Created" ? (
                 <span>{value}</span>
               ) : (
@@ -116,10 +117,10 @@ export function GardenSettings({ garden, userId, storagePrefix }: GardenSettings
                   </button>
                 </>
               )}
-            </dd>
-          </div>
+            </div>
+          </li>
         ))}
-      </dl>
+      </ul>
       {copyFeedback && (
         <p role={copyFeedback.failed ? "alert" : "status"} className="mt-2 text-sm text-base-content/75">
           {copyFeedback.message}
