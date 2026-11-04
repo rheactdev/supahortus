@@ -30,7 +30,6 @@ const memberPermissions = [
 ] as const;
 
 const publicPermissions = [
-  { field: "enabled", label: "Allow viewing" },
   { field: "can_upload", label: "Allow uploads" },
   { field: "can_delete", label: "Allow file deletion" },
 ] as const;
@@ -135,7 +134,7 @@ export function MemberManager({ gardenId, members, userId, gardenName, publicLin
       <section aria-labelledby="garden-members" className="mt-8 min-w-0 pb-6">
         <div className="flex min-w-0 flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="garden-members" className="text-lg font-semibold">Members</h2>
+            <h2 id="garden-members" className="text-xl mb-1 font-semibold">Members</h2>
             <button ref={addButton} type="button" className="btn btn-primary btn-sm" onClick={openAddDialog}>
               <Add size={16} /> Add Member
             </button>
@@ -373,25 +372,62 @@ function PublicSharing({ gardenId, userId, publicLink }: Pick<MemberManagerProps
   }
 
   return (
-    <section aria-labelledby="garden-public-sharing" className="grid min-w-0 gap-4 py-6 lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-8">
-      <div>
-        <h2 id="garden-public-sharing" className="text-lg font-semibold">Public sharing</h2>
-        <p className="mt-1 text-sm text-base-content/75">
-          {link
-            ? "Anyone with the link can access this garden when public viewing is enabled."
-            : "Generate a link to share this garden with anyone who has the link."}
-        </p>
+    <section aria-labelledby="garden-public-sharing" className="mt-2 min-w-0 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 id="garden-public-sharing" className="text-xl mb-1 font-semibold mr-4">Public Sharing</h2>
+        {/* {link && (
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="Public sharing"
+            className="toggle toggle-sm toggle-success"
+            checked={link.enabled}
+            disabled={Boolean(pending)}
+            onChange={() => changePermission("enabled")}
+          />
+        )}
+        {pending === "enabled" ? <span className="badge badge-sm">Saving...</span> :
+          link ? (link.enabled ? <span className="badge badge-sm badge-success">Enabled</span> : <span className="badge badge-error badge-sm">Disabled</span>) :
+            "No link"} */}
       </div>
       <div className="flex min-w-0 flex-col items-start gap-3">
-        <span className="badge badge-ghost badge-sm">
-          {link ? (link.enabled ? "Enabled" : "Disabled") : "No link"}
-        </span>
         {link ? (
           <>
-            <fieldset className="fieldset gap-2">
-              <legend className="fieldset-legend">Link permissions</legend>
+            <ul role="list" className="list gap-2 text-sm">
+              <li key={"access"} className="list-row min-h-6 items-center gap-x-3 p-0 after:hidden">
+                 <span className="w-24 text-base-content/70 sm:w-38">Enable public link</span>
+                {link && (
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label="Public sharing"
+                    className="toggle toggle-sm toggle-success"
+                    checked={link.enabled}
+                    disabled={Boolean(pending)}
+                    onChange={() => changePermission("enabled")}
+                  />
+                )}
+                {pending === "enabled" ? <span className="badge badge-sm">Saving...</span> :
+                  link ? (link.enabled ? <span className="badge badge-sm badge-success">Enabled</span> : <span className="badge badge-error badge-sm">Disabled</span>) :
+                    "No link"}
+              </li>
               {publicPermissions.map(({ field, label }) => (
-                <label key={field} className="label w-fit text-base-content">
+                <li key={label} className="list-row min-h-6 items-center gap-x-3 p-0 after:hidden">
+                  <span className="w-24 text-base-content/70 sm:w-38">{label}</span>
+                  <input
+                    type="checkbox"
+                    className="toggle toggle-sm"
+                    checked={link[field]}
+                    disabled={Boolean(pending)}
+                    onChange={() => changePermission(field)}
+                  />
+                </li>
+
+              ))}
+            </ul>
+            {/* <fieldset className="fieldset">
+              {publicPermissions.map(({ field, label }) => (
+                <label key={field} className="label">
                   <input
                     type="checkbox"
                     className="toggle toggle-sm"
@@ -403,7 +439,7 @@ function PublicSharing({ gardenId, userId, publicLink }: Pick<MemberManagerProps
                   {pending === field && <span role="status">Saving…</span>}
                 </label>
               ))}
-            </fieldset>
+            </fieldset> */}
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"

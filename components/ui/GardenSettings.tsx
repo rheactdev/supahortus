@@ -68,7 +68,7 @@ export function GardenSettings({ garden, userId, storagePrefix }: GardenSettings
       <form onSubmit={handleRename}>
         {/* <h2 className="text-lg font-semibold">Overview</h2> */}
         <fieldset className="fieldset gap-2 py-0">
-          <label htmlFor="garden-name" className="label text-base-content text-lg font-semibold">
+          <label htmlFor="garden-name" className="label text-base-content text-xl mb-1 font-semibold">
             Name
           </label>
           <div className="join w-full max-w-sm">
@@ -153,11 +153,8 @@ export function GardenDangerZone({ garden, userId }: Pick<GardenSettingsProps, "
   }
 
   return (
-    <section aria-labelledby="garden-danger" className="grid items-start gap-4 py-6 lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-8">
-      <div>
-        <h2 id="garden-danger" className="text-lg font-semibold">Danger zone</h2>
-        <p className="mt-1 text-sm text-base-content/75">Permanently delete this garden and start file cleanup.</p>
-      </div>
+    <section aria-labelledby="garden-danger" className="mt-8 space-y-3 pb-6">
+      <h2 id="garden-danger" className="text-lg font-semibold">Danger zone</h2>
       <div>
         <button
           type="button"
