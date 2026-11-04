@@ -25,17 +25,33 @@ function getDirectoryPath(relativePath: unknown) {
   return separator < 0 ? "" : relativePath.slice(0, separator);
 }
 
-export function UppyUploader({ gardenId, parentId, userId, onUploadSuccess }: {
+export function UppyUploader({ gardenId, gardenName, parentId, userId, onUploadSuccess }: {
   gardenId: string;
+  gardenName: string;
   parentId: string | null;
   userId: string;
   onUploadSuccess: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+  const uploadDialog = useRef<HTMLDialogElement>(null);
+  const cancelDialog = useRef<HTMLDialogElement>(null);
   const [phase, setPhase] = useState<"idle" | "preparing" | "uploading">("idle");
   const [error, setError] = useState("");
   const destinations = useRef(new Map<string, string | null>());
   const uploadTokens = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    const dialog = uploadDialog.current;
+    if (isOpen) dialog?.showModal();
+    return () => dialog?.close();
+  }, [isOpen]);
+
+  useEffect(() => {
+    const dialog = cancelDialog.current;
+    if (showCancelConfirmation) dialog?.showModal();
+    return () => dialog?.close();
+  }, [showCancelConfirmation]);
 
   function requireUploadToken(fileId: string) {
     const token = uploadTokens.current.get(fileId);
@@ -244,12 +260,21 @@ export function UppyUploader({ gardenId, parentId, userId, onUploadSuccess }: {
     }
   };
 
-  const handleClose = () => {
-    if (phase === "preparing") return;
+  const closeUploader = () => {
+    setShowCancelConfirmation(false);
     setIsOpen(false);
     setError("");
     uppy.cancelAll();
     destinations.current.clear();
+  };
+
+  const handleClose = () => {
+    if (phase === "preparing") return;
+    if (phase === "uploading") {
+      setShowCancelConfirmation(true);
+      return;
+    }
+    closeUploader();
   };
 
   return (
@@ -264,32 +289,43 @@ export function UppyUploader({ gardenId, parentId, userId, onUploadSuccess }: {
       </button>
 
       {isOpen && (
-        <dialog id="uppy_modal" className="modal modal-open">
+        <dialog
+          ref={uploadDialog}
+          id="uppy_modal"
+          className="modal"
+          aria-labelledby="uppy-modal-title"
+          onCancel={(event) => {
+            event.preventDefault();
+            handleClose();
+          }}
+        >
           <div className="modal-box flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden">
 
-            <h3 className="flex shrink-0 items-center gap-2 text-lg font-bold">
-              <Upload size={24} /> Upload to {parentId ? "Folder" : "Bucket Root"}
+            <h3 id="uppy-modal-title" className="flex shrink-0 items-center gap-2 text-lg font-bold">
+              <Upload size={24} /> Upload to {parentId ? "Folder" : gardenName}
             </h3>
 
             <div className="min-h-0 flex-1 overflow-y-auto py-4 custom-scrollbar">
-              <fieldset className="fieldset">
-                <legend className="fieldset-legend">Choose files</legend>
-                <input type="file" multiple aria-label="Choose files" onChange={handleFileInputChange} disabled={phase !== "idle"} className="file-input w-full hover:border-primary" />
-              </fieldset>
-
-              {"webkitdirectory" in HTMLInputElement.prototype && (
-                <fieldset className="fieldset">
-                  <legend className="fieldset-legend">Choose folder</legend>
-                  <input
-                    type="file"
-                    aria-label="Choose folder"
-                    ref={input => { if (input) input.webkitdirectory = true; }}
-                    onChange={handleFileInputChange}
-                    disabled={phase !== "idle"}
-                    className="file-input w-full hover:border-primary"
-                  />
+              <div className="flex gap-4">
+                <fieldset className="fieldset min-w-0 flex-1">
+                  <legend className="fieldset-legend">Choose files</legend>
+                  <input type="file" multiple aria-label="Choose files" onChange={handleFileInputChange} disabled={phase !== "idle"} className="file-input w-full hover:border-primary" />
                 </fieldset>
-              )}
+
+                {"webkitdirectory" in HTMLInputElement.prototype && (
+                  <fieldset className="fieldset min-w-0 flex-1">
+                    <legend className="fieldset-legend">Choose folder</legend>
+                    <input
+                      type="file"
+                      aria-label="Choose folder"
+                      ref={input => { if (input) input.webkitdirectory = true; }}
+                      onChange={handleFileInputChange}
+                      disabled={phase !== "idle"}
+                      className="file-input w-full hover:border-primary"
+                    />
+                  </fieldset>
+                )}
+              </div>
 
               {error && <p className="mt-2 text-sm text-error" role="alert">{error}</p>}
 
@@ -328,6 +364,48 @@ export function UppyUploader({ gardenId, parentId, userId, onUploadSuccess }: {
           </form>
         </dialog>
       )}
+
+      <dialog
+        ref={cancelDialog}
+        className="modal"
+        aria-labelledby="cancel-uploads-title"
+        aria-describedby="cancel-uploads-description"
+        onCancel={(event) => {
+          event.preventDefault();
+          setShowCancelConfirmation(false);
+        }}
+      >
+        <div className="modal-box max-w-md">
+          <h3 id="cancel-uploads-title" className="text-lg font-bold">
+            Cancel uploads?
+          </h3>
+          <p id="cancel-uploads-description" className="mt-3 text-sm text-base-content/70">
+            Closing will cancel unfinished uploads and clear the queue. Completed files will stay in your garden.
+          </p>
+          <div className="modal-action flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              className="btn btn-sm"
+              autoFocus
+              onClick={() => setShowCancelConfirmation(false)}
+            >
+              Keep uploading
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-error"
+              onClick={closeUploader}
+            >
+              Cancel uploads
+            </button>
+          </div>
+        </div>
+        <form method="dialog" className="modal-backdrop">
+          <button type="button" onClick={() => setShowCancelConfirmation(false)}>
+            Keep uploading
+          </button>
+        </form>
+      </dialog>
     </>
   );
 }

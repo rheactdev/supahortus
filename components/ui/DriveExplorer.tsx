@@ -25,6 +25,7 @@ import { useRouter } from "next/navigation";
 import {
   createShareLink,
   deleteFiles,
+  deleteItem,
   moveFiles,
   renameItem,
 } from "@/lib/actions";
@@ -75,6 +76,7 @@ export function DriveExplorer({
   const [renameModal, setRenameModal] = useState<Item | null>(null);
   const [renameName, setRenameName] = useState("");
   const [renameLoading, setRenameLoading] = useState(false);
+  const [deletingFolderId, setDeletingFolderId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
@@ -159,6 +161,21 @@ export function DriveExplorer({
       showToast(err instanceof Error ? err.message : "Failed to rename");
     } finally {
       setRenameLoading(false);
+    }
+  };
+
+  const handleDeleteFolder = async (folder: Item) => {
+    if (!window.confirm(`Delete "${folder.name}" and all its contents?`)) return;
+
+    setDeletingFolderId(folder.id);
+    try {
+      await deleteItem(folder.id, gardenId, userId);
+      showToast("Folder queued for deletion");
+      refreshData();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to delete folder");
+    } finally {
+      setDeletingFolderId(null);
     }
   };
 
@@ -418,6 +435,7 @@ export function DriveExplorer({
               />
               <UppyUploader
                 gardenId={gardenId}
+                gardenName={gardenName}
                 parentId={folderId}
                 userId={userId}
                 onUploadSuccess={refreshData}
@@ -500,7 +518,7 @@ export function DriveExplorer({
                       key={folder.id}
                       className="card bg-base-200/50 hover:bg-base-300/60 border border-base-content/5 hover:border-primary/30 group active:scale-95 relative overflow-visible"
                     >
-                      {canUpload && (
+                      {(canUpload || canDelete) && (
                         <div className="absolute top-1/2 -translate-y-1/2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
                           <Dropdown className="dropdown-end">
                             <DropdownTrigger className="btn-sm btn-ghost btn-square shadow-none">
@@ -521,22 +539,40 @@ export function DriveExplorer({
                                   </button>
                                 </li>
                               ) : null}
-                              <li>
-                                <button
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    setRenameModal(folder);
-                                    setRenameName(folder.name);
-                                  }}
-                                >
-                                  <DocumentIcon
-                                    size={16}
-                                    className="text-warning"
-                                  />{" "}
-                                  Rename
-                                </button>
-                              </li>
+                              {canUpload && (
+                                <li>
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setRenameModal(folder);
+                                      setRenameName(folder.name);
+                                    }}
+                                  >
+                                    <DocumentIcon
+                                      size={16}
+                                      className="text-warning"
+                                    />{" "}
+                                    Rename
+                                  </button>
+                                </li>
+                              )}
+                              {canDelete && (
+                                <li>
+                                  <button
+                                    className="text-error hover:bg-error/10 hover:text-error"
+                                    disabled={deletingFolderId !== null}
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      void handleDeleteFolder(folder);
+                                    }}
+                                  >
+                                    <Trash size={16} />
+                                    {deletingFolderId === folder.id ? "Deleting…" : "Delete"}
+                                  </button>
+                                </li>
+                              )}
                             </DropdownContent>
                           </Dropdown>
                         </div>
