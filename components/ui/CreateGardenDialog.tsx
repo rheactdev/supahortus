@@ -80,7 +80,7 @@ export function CreateGardenDialog({ inline }: CreateGardenDialogProps) {
         <input
           type="text"
           className="input input-bordered w-full"
-          placeholder="Hopkins Medical Cases"
+          placeholder="Untitled"
           value={name}
           onChange={(e) => handleNameChange(e.target.value)}
           autoFocus
@@ -98,7 +98,7 @@ export function CreateGardenDialog({ inline }: CreateGardenDialogProps) {
           <input
             type="text"
             className="grow bg-transparent outline-none font-mono text-sm"
-            placeholder="hopkins-cases"
+            placeholder="untitled"
             value={slug}
             onChange={(e) => {
               setSlugTouched(true);
