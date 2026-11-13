@@ -1,7 +1,47 @@
 @import "tailwindcss";
 
 @plugin "daisyui" {
-    themes: nord --default, business --prefersdark
+    themes: nord --default, business;
+}
+
+/*!
+ * Author: Dachi — https://github.com/dachinat
+ * License: CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/
+ * Repo: https://github.com/dachinat/daisyui-themes
+ */
+@plugin "daisyui/theme" {
+    name: "everforest";
+    default: false;
+    prefersdark: false;
+    color-scheme: "dark";
+    --color-base-100: #1e2326;
+    --color-base-200: #272e33;
+    --color-base-300: #374145;
+    --color-base-content: #d3c6aa;
+    --color-primary: #7fbbb3;
+    --color-primary-content: oklch(96% 0.018 272.314);
+    --color-secondary: #d699b6;
+    --color-secondary-content: oklch(94% 0.028 342.258);
+    --color-accent: #e69875;
+    --color-accent-content: #e8e7ea;
+    --color-neutral: #83c092;
+    --color-neutral-content: oklch(92% 0.004 286.32);
+    --color-info: #9da9a0;
+    --color-info-content: #e8e7ea;
+    --color-success: #a7c080;
+    --color-success-content: #e8e7ea;
+    --color-warning: #dbbc7f;
+    --color-warning-content: #091b2f;
+    --color-error: #e67e80;
+    --color-error-content: #e8e7ea;
+    --radius-selector: 0.5rem;
+    --radius-field: 0.5rem;
+    --radius-box: 0.5rem;
+    --size-selector: 0.25rem;
+    --size-field: 0.25rem;
+    --border: 1px;
+    --depth: 1;
+    --noise: 0;
 }
 
 .card-border {

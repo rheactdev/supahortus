@@ -3,6 +3,7 @@ import { AuthButton } from "../auth-button";
 import { NavbarSearch } from "./NavbarSearch";
 import { createClient } from "@/lib/supabase/server";
 import { claimsAreAdmin } from "@/lib/admin-access";
+import { ThemeSwitcher } from "../theme-switcher";
 
 export const Navbar = async () => {
   const supabase = await createClient();
@@ -10,7 +11,7 @@ export const Navbar = async () => {
   const showAdmin = claimsAreAdmin(data?.claims);
 
   return (
-    <div className="navbar flex-nowrap gap-3 bg-base-300 px-4 shadow-sm">
+    <div className="navbar relative z-20 flex-nowrap gap-3 bg-base-300 px-4 shadow-sm min-h-0">
       <div className="shrink-0">
         <Link className="btn btn-ghost px-2 text-xl" href="/">
           Hortus
@@ -18,12 +19,16 @@ export const Navbar = async () => {
       </div>
       <div className="flex min-w-0 flex-1 justify-end">
         <ul className="menu menu-horizontal flex-nowrap items-center gap-1 px-1">
-          <li className="min-w-32 flex-1 sm:min-w-48 lg:w-80 lg:flex-none">
+          <li>
             <NavbarSearch />
+          </li>
+          <li>
+            <ThemeSwitcher />
           </li>
           <li>
             <Link href="/my-gardens">Gardens</Link>
           </li>
+
           {showAdmin ? (
             <li>
               <Link href="/admin">Admin</Link>

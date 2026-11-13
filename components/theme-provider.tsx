@@ -2,7 +2,13 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 
-type Theme = "nord" | "business";
+export const THEMES = [
+  { value: "nord", label: "Nord" },
+  { value: "business", label: "Business" },
+  { value: "everforest", label: "Everforest" },
+] as const;
+
+type Theme = (typeof THEMES)[number]["value"];
 
 interface ThemeProviderProps {
   children: React.ReactNode;
@@ -16,39 +22,40 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+function applyTheme(theme: Theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+}
+
 export function ThemeProvider({
   children,
   defaultTheme = "business",
 }: ThemeProviderProps) {
-  const [theme, setThemeState] = useState<Theme>("business");
+  const [theme, setThemeState] = useState<Theme>(defaultTheme);
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("daisyui-theme") as Theme | null;
-    if (savedTheme) {
-      setThemeState(savedTheme);
-      applyTheme(savedTheme);
-    } else {
-      setThemeState(defaultTheme);
-      applyTheme(defaultTheme);
+    let savedTheme: string | null = null;
+
+    try {
+      savedTheme = localStorage.getItem("daisyui-theme");
+    } catch {
+      // Use the default theme when browser storage is unavailable.
     }
+
+    const initialTheme = THEMES.find(({ value }) => value === savedTheme)?.value
+      ?? defaultTheme;
+
+    setThemeState(initialTheme);
+    applyTheme(initialTheme);
   }, [defaultTheme]);
-
-  const applyTheme = (newTheme: Theme) => {
-    let resolvedTheme = newTheme;
-
-    if (newTheme === "business") {
-      resolvedTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "business"
-        : "nord";
-    }
-
-    document.documentElement.setAttribute("data-theme", resolvedTheme);
-  };
 
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);
     applyTheme(newTheme);
-    localStorage.setItem("daisyui-theme", newTheme);
+    try {
+      localStorage.setItem("daisyui-theme", newTheme);
+    } catch {
+      // Theme changes still work when browser storage is unavailable.
+    }
   };
 
   return (
